@@ -1,33 +1,79 @@
 import type { ArchivedPage } from "./types";
 
-const PROXIES = [
-  (url: string) =>
-    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+interface ProxyAdapter {
+  name: string;
+  toUrl: (targetUrl: string) => string;
+  parseResponse: (res: Response) => Promise<string>;
+}
+
+const PROXIES: ProxyAdapter[] = [
+  {
+    name: "allorigins",
+    toUrl: (url: string) =>
+      `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    parseResponse: async (res) => {
+      const json = await res.json();
+      if (json?.contents) return json.contents as string;
+      throw new Error("allorigins: empty contents");
+    },
+  },
+  {
+    name: "codetabs",
+    toUrl: (url: string) =>
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    parseResponse: (res) => res.text(),
+  },
+  {
+    name: "corsproxy",
+    toUrl: (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    parseResponse: (res) => res.text(),
+  },
 ];
 
-export async function fetchViaProxy(url: string): Promise<string> {
-  let lastError: Error | null = null;
+function looksLikeHtml(content: string): boolean {
+  const sample = content.slice(0, 800).toLowerCase();
+  return (
+    sample.includes("<html") ||
+    sample.includes("<!doctype html") ||
+    sample.includes("<head") ||
+    sample.includes("<body") ||
+    sample.includes("<title")
+  );
+}
 
-  for (const proxyFn of PROXIES) {
+function sanitizeFetchError(message: string): string {
+  if (!message) return "Unknown network error";
+  if (message.toLowerCase().includes("failed to fetch")) {
+    return "Network/CORS error";
+  }
+  return message;
+}
+
+export async function fetchViaProxy(url: string): Promise<string> {
+  const failures: string[] = [];
+
+  for (const proxy of PROXIES) {
     try {
-      const proxyUrl = proxyFn(url);
+      const proxyUrl = proxy.toUrl(url);
       const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      if (proxyUrl.includes("allorigins")) {
-        const json = await res.json();
-        if (json && json.contents) return json.contents as string;
-        throw new Error("allorigins: empty contents");
+      const content = await proxy.parseResponse(res);
+      if (!content.trim()) {
+        throw new Error("Empty response body");
       }
 
-      return await res.text();
+      if (!looksLikeHtml(content)) {
+        throw new Error("Non-HTML response");
+      }
+
+      return content;
     } catch (e) {
-      lastError = e as Error;
+      failures.push(`${proxy.name}: ${sanitizeFetchError((e as Error).message)}`);
     }
   }
 
-  throw lastError ?? new Error("All proxies failed");
+  throw new Error(`Tum proxy denemeleri basarisiz oldu. ${failures.join(" | ")}`);
 }
 
 function extractLinks(html: string, baseUrl: string): string[] {
