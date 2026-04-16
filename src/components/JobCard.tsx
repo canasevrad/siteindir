@@ -3,6 +3,7 @@ import {
   Eye,
   Globe,
   Trash2,
+  Cloud,
   LoaderCircle,
   AlertCircle,
   CloudUpload,
@@ -15,6 +16,7 @@ interface JobCardProps {
   job: ArchiveJob;
   onView: (job: ArchiveJob) => void;
   onDelete: (id: string) => void | Promise<void>;
+  onDeleteCloud: (id: string) => void | Promise<void>;
   onExport: (job: ArchiveJob) => void;
   onSyncCloud: (job: ArchiveJob) => void | Promise<void>;
   cloudEnabled: boolean;
@@ -30,6 +32,7 @@ export default function JobCard({
   job,
   onView,
   onDelete,
+  onDeleteCloud,
   onExport,
   onSyncCloud,
   cloudEnabled,
@@ -139,10 +142,19 @@ export default function JobCard({
             <CloudUpload className="h-4 w-4" />
           </button>
         )}
+        {cloudEnabled && job.cloudSyncedAt && (
+          <button
+            onClick={() => onDeleteCloud(job.id)}
+            className="inline-flex items-center justify-center rounded-xl border border-orange-900/70 px-3 py-2 text-orange-300 transition-colors hover:bg-orange-950/50"
+            title="Sadece bulut kopyasini sil"
+          >
+            <Cloud className="h-4 w-4" />
+          </button>
+        )}
         <button
           onClick={() => onDelete(job.id)}
           className="inline-flex items-center justify-center rounded-xl border border-red-900/70 px-3 py-2 text-red-400 transition-colors hover:bg-red-950/50"
-          title="Sil"
+          title="Yerelden sil"
         >
           <Trash2 className="h-4 w-4" />
         </button>

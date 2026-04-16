@@ -174,13 +174,31 @@ export default function App() {
     deleteJob(id);
     setJobs(loadJobs());
     if (viewingJob?.id === id) setViewingJob(null);
+    setCloudMessage("Yerel kopya silindi. Buluttaki yedek korunuyor.");
+  };
 
-    if (cloudReady) {
-      const cloudError = await deleteJobFromCloud(id);
-      if (cloudError) {
-        setCloudMessage(`Buluttan silme hatasi: ${cloudError}`);
-      }
+  const handleDeleteCloudCopy = async (id: string) => {
+    if (!cloudReady) {
+      setCloudMessage("Supabase ayarlari yapilmadigi icin bulut kapali.");
+      return;
     }
+
+    setCloudBusy(true);
+    const cloudError = await deleteJobFromCloud(id);
+    setCloudBusy(false);
+
+    if (cloudError) {
+      setCloudMessage(`Buluttan silme hatasi: ${cloudError}`);
+      return;
+    }
+
+    const latest = loadJobs();
+    const updated = latest.map((job) =>
+      job.id === id ? { ...job, cloudPath: undefined, cloudSyncedAt: undefined } : job
+    );
+    saveJobs(updated);
+    setJobs(updated);
+    setCloudMessage("Bulut kopyasi silindi.");
   };
 
   const handleView = (job: ArchiveJob) => {
@@ -435,6 +453,7 @@ export default function App() {
                 job={job}
                 onView={handleView}
                 onDelete={handleDelete}
+                onDeleteCloud={handleDeleteCloudCopy}
                 onExport={handleExport}
                 onSyncCloud={handleSyncSingle}
                 cloudEnabled={cloudReady}
