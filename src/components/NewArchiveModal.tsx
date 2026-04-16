@@ -1,142 +1,191 @@
 import { useState } from "react";
-import { X, Globe, Info } from "lucide-react";
+import { X, Globe, Hash, AlertCircle, Loader2 } from "lucide-react";
 
 interface Props {
   onClose: () => void;
   onStart: (url: string, maxPages: number) => void;
 }
 
+const PRESETS = [5, 10, 25, 50, 100];
+
 export default function NewArchiveModal({ onClose, onStart }: Props) {
   const [url, setUrl] = useState("");
-  const [maxPages, setMaxPages] = useState(30);
+  const [maxPages, setMaxPages] = useState(10);
+  const [customMax, setCustomMax] = useState("");
+  const [useCustom, setUseCustom] = useState(false);
   const [error, setError] = useState("");
 
-  const handleStart = () => {
+  const validate = (): boolean => {
     setError("");
-    let trimmed = url.trim();
+    const trimmed = url.trim();
     if (!trimmed) {
       setError("Lütfen bir URL girin.");
-      return;
-    }
-    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-      trimmed = "https://" + trimmed;
+      return false;
     }
     try {
-      new URL(trimmed);
+      const u = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+      if (u.protocol !== "http:" && u.protocol !== "https:") {
+        setError("Sadece http/https URL'leri desteklenir.");
+        return false;
+      }
     } catch {
-      setError("Geçersiz URL formatı.");
-      return;
+      setError("Geçersiz URL formatı. Örn: https://example.com");
+      return false;
     }
-    onStart(trimmed, maxPages);
+    const pages = useCustom ? parseInt(customMax, 10) : maxPages;
+    if (!pages || pages < 1 || pages > 500) {
+      setError("Sayfa sayısı 1-500 arasında olmalıdır.");
+      return false;
+    }
+    return true;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
+    const trimmed = url.trim();
+    const normalized = trimmed.startsWith("http") ? trimmed : `https://${trimmed}`;
+    const pages = useCustom ? parseInt(customMax, 10) : maxPages;
+    onStart(normalized, pages);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+    >
+      <div
+        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-700">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center">
-              <Globe className="w-5 h-5 text-cyan-400" />
-            </div>
-            <div>
-              <h2 className="text-white font-semibold text-lg">Yeni Site Arşivi</h2>
-              <p className="text-gray-400 text-sm">URL girerek siteyi arşivle</p>
-            </div>
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-800">
+          <div>
+            <h2 className="text-white font-bold text-lg">Yeni Arşiv Başlat</h2>
+            <p className="text-gray-500 text-sm mt-0.5">
+              Taranacak sitenin URL'sini girin
+            </p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors p-1"
+            className="w-8 h-8 rounded-lg bg-gray-800 hover:bg-gray-700 flex items-center justify-center transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 text-gray-400" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-6 space-y-5">
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
           {/* URL Input */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Site URL'si
+            <label className="block text-gray-300 text-sm font-medium mb-2">
+              Web Sitesi URL'si
             </label>
             <div className="relative">
               <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="text"
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleStart()}
-                placeholder="https://minorityreport0.tumblr.com/"
-                className="w-full bg-gray-800 border border-gray-600 rounded-xl pl-10 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 transition-all"
+                onChange={(e) => {
+                  setUrl(e.target.value);
+                  setError("");
+                }}
+                placeholder="https://example.com"
+                autoFocus
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
               />
             </div>
-            {error && (
-              <p className="text-red-400 text-sm mt-1.5">{error}</p>
-            )}
+            <p className="text-gray-600 text-xs mt-1.5">
+              Ana sayfa URL'si — aynı domain'deki alt sayfalar otomatik taranır.
+            </p>
           </div>
 
           {/* Max Pages */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Maksimum Sayfa Sayısı:{" "}
-              <span className="text-cyan-400 font-bold">{maxPages}</span>
+            <label className="block text-gray-300 text-sm font-medium mb-2 flex items-center gap-1.5">
+              <Hash className="w-3.5 h-3.5 text-gray-500" />
+              Maksimum Sayfa Sayısı
             </label>
-            <input
-              type="range"
-              min={1}
-              max={200}
-              value={maxPages}
-              onChange={(e) => setMaxPages(Number(e.target.value))}
-              className="w-full accent-cyan-500"
-            />
-            <div className="flex justify-between text-xs text-gray-500 mt-1">
-              <span>1 sayfa</span>
-              <span>200 sayfa</span>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {PRESETS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => {
+                    setMaxPages(p);
+                    setUseCustom(false);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                    !useCustom && maxPages === p
+                      ? "bg-cyan-500 border-cyan-500 text-gray-900"
+                      : "bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-500"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setUseCustom(true)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                  useCustom
+                    ? "bg-cyan-500 border-cyan-500 text-gray-900"
+                    : "bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-500"
+                }`}
+              >
+                Özel
+              </button>
             </div>
-          </div>
-
-          {/* Info Box */}
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex gap-3">
-            <Info className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
-            <div className="text-sm text-blue-300 space-y-1">
-              <p className="font-medium">Nasıl çalışır?</p>
-              <ul className="text-blue-400 space-y-0.5 list-disc list-inside">
-                <li>Verdiğin URL'den başlayarak sayfaları tarar</li>
-                <li>Aynı domain'deki linkleri takip eder</li>
-                <li>HTML, başlık, açıklama, resimler ve linkleri kaydeder</li>
-                <li>Tarayıcının yerel belleğine (localStorage) arşivler</li>
-                <li>Site kapansa bile arşivi görüntüleyebilirsin</li>
-              </ul>
-            </div>
+            {useCustom && (
+              <input
+                type="number"
+                value={customMax}
+                onChange={(e) => setCustomMax(e.target.value)}
+                placeholder="Sayfa sayısı girin (1-500)"
+                min={1}
+                max={500}
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+              />
+            )}
+            <p className="text-gray-600 text-xs mt-1.5">
+              Büyük siteler için daha az sayfa seçmeniz önerilir (localStorage sınırı ~5 MB).
+            </p>
           </div>
 
           {/* Warning */}
-          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 flex gap-3">
-            <Info className="w-4 h-4 text-yellow-400 mt-0.5 shrink-0" />
-            <p className="text-sm text-yellow-300">
-              <span className="font-medium">CORS Notu:</span> Tarayıcı güvenlik
-              kısıtlamaları nedeniyle bazı siteler (özellikle JS-render gerektirenler)
-              kısmen veya hiç çekilemeyebilir. Tumblr ve Blogspot genellikle çalışır.
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 flex gap-3">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-amber-300/80 text-xs leading-relaxed">
+              Tarama işlemi CORS proxy üzerinden gerçekleşir. Bazı siteler proxy erişimini engelleyebilir. İşlem arka planda devam eder.
             </p>
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="p-6 pt-0 flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-3 rounded-xl border border-gray-600 text-gray-300 hover:bg-gray-800 transition-colors"
-          >
-            İptal
-          </button>
-          <button
-            onClick={handleStart}
-            className="flex-1 px-4 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-gray-900 font-semibold transition-colors flex items-center justify-center gap-2"
-          >
-            <Globe className="w-4 h-4" />
-            Arşivlemeye Başla
-          </button>
-        </div>
+          {/* Error */}
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 flex gap-3">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-sm font-medium transition-colors"
+            >
+              İptal
+            </button>
+            <button
+              type="submit"
+              className="flex-1 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-gray-900 font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              <Loader2 className="w-4 h-4 hidden" />
+              Arşivi Başlat
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

@@ -79,9 +79,6 @@ export default function App() {
       if (!currentJob.favicon && page.favicon) {
         currentJob.favicon = page.favicon;
       }
-      if (currentJob.siteName === new URL(rootUrl).hostname && page.title) {
-        // keep hostname as site name (cleaner)
-      }
 
       currentJob = {
         ...currentJob,
@@ -151,7 +148,10 @@ export default function App() {
   );
 
   // Stats
-  const totalPages = jobs.reduce((a, j) => a + j.pages.filter(p => p.status === "success").length, 0);
+  const totalPages = jobs.reduce(
+    (a, j) => a + j.pages.filter((p) => p.status === "success").length,
+    0
+  );
   const totalSize = jobs.reduce(
     (a, j) => a + j.pages.reduce((b, p) => b + p.size, 0),
     0
@@ -171,10 +171,7 @@ export default function App() {
         />
       )}
       {viewingJob && (
-        <ArchiveViewer
-          job={viewingJob}
-          onClose={() => setViewingJob(null)}
-        />
+        <ArchiveViewer job={viewingJob} onClose={() => setViewingJob(null)} />
       )}
 
       {/* Header */}
@@ -186,8 +183,12 @@ export default function App() {
               <Archive className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-white font-bold text-lg leading-tight">WebArşiv</h1>
-              <p className="text-gray-500 text-xs">Site Kopyalama & Arşivleme</p>
+              <h1 className="text-white font-bold text-lg leading-tight">
+                WebArşiv
+              </h1>
+              <p className="text-gray-500 text-xs">
+                Site Kopyalama & Arşivleme
+              </p>
             </div>
           </div>
 
@@ -252,7 +253,9 @@ export default function App() {
               key={label}
               className={`bg-gray-900 border rounded-2xl p-4 flex items-center gap-4 ${bg}`}
             >
-              <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${bg}`}>
+              <div
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${bg}`}
+              >
                 <Icon className={`w-5 h-5 ${color}`} />
               </div>
               <div>
@@ -275,7 +278,7 @@ export default function App() {
             <p className="text-gray-500 mb-6 max-w-md mx-auto">
               {searchQuery
                 ? `"${searchQuery}" için eşleşen arşiv bulunamadı.`
-                : "\"Yeni Arşiv\" butonuna basarak herhangi bir sitenin URL'sini gir ve tüm içeriğini kopyala."}
+                : '"Yeni Arşiv" butonuna basarak herhangi bir sitenin URL\'sini gir ve tüm içeriğini kopyala.'}
             </p>
             {!searchQuery && (
               <button
@@ -343,7 +346,9 @@ export default function App() {
                   </div>
                   <div>
                     <p className="text-white font-medium text-sm">{title}</p>
-                    <p className="text-gray-400 text-xs mt-1 leading-relaxed">{desc}</p>
+                    <p className="text-gray-400 text-xs mt-1 leading-relaxed">
+                      {desc}
+                    </p>
                   </div>
                 </div>
               ))}
