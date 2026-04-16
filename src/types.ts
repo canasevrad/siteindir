@@ -26,4 +26,6 @@ export interface ArchiveJob {
   finishedAt?: string;
   pages: ArchivedPage[];
   errorMsg?: string;
+  cloudPath?: string;
+  cloudSyncedAt?: string;
 }

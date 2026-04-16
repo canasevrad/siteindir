@@ -1,12 +1,23 @@
-import { Download, Eye, Globe, Trash2, LoaderCircle, AlertCircle } from "lucide-react";
+import {
+  Download,
+  Eye,
+  Globe,
+  Trash2,
+  LoaderCircle,
+  AlertCircle,
+  CloudUpload,
+  CloudCheck,
+} from "lucide-react";
 import type { ArchiveJob } from "../types";
 import { formatBytes, formatDate } from "../store";
 
 interface JobCardProps {
   job: ArchiveJob;
   onView: (job: ArchiveJob) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<void>;
   onExport: (job: ArchiveJob) => void;
+  onSyncCloud: (job: ArchiveJob) => void | Promise<void>;
+  cloudEnabled: boolean;
 }
 
 function statusLabel(job: ArchiveJob): string {
@@ -15,7 +26,14 @@ function statusLabel(job: ArchiveJob): string {
   return "Tamamlandi";
 }
 
-export default function JobCard({ job, onView, onDelete, onExport }: JobCardProps) {
+export default function JobCard({
+  job,
+  onView,
+  onDelete,
+  onExport,
+  onSyncCloud,
+  cloudEnabled,
+}: JobCardProps) {
   const progress = job.totalPages > 0 ? Math.round((job.donePages / job.totalPages) * 100) : 0;
   const successPages = job.pages.filter((p) => p.status === "success").length;
   const totalBytes = job.pages.reduce((acc, page) => acc + page.size, 0);
@@ -81,6 +99,22 @@ export default function JobCard({ job, onView, onDelete, onExport }: JobCardProp
         <p>Baslangic: {formatDate(job.startedAt)}</p>
       </div>
 
+      {cloudEnabled && (
+        <p className="mb-3 inline-flex items-center gap-1 text-xs text-zinc-400">
+          {job.cloudSyncedAt ? (
+            <>
+              <CloudCheck className="h-3.5 w-3.5 text-emerald-400" />
+              Bulut yedegi var
+            </>
+          ) : (
+            <>
+              <CloudUpload className="h-3.5 w-3.5 text-zinc-500" />
+              Buluta yedeklenmedi
+            </>
+          )}
+        </p>
+      )}
+
       <div className="flex items-center gap-2">
         <button
           onClick={() => onView(job)}
@@ -96,6 +130,15 @@ export default function JobCard({ job, onView, onDelete, onExport }: JobCardProp
         >
           <Download className="h-4 w-4" />
         </button>
+        {cloudEnabled && (
+          <button
+            onClick={() => onSyncCloud(job)}
+            className="inline-flex items-center justify-center rounded-xl border border-cyan-900/70 px-3 py-2 text-cyan-300 transition-colors hover:bg-cyan-950/40"
+            title="Buluta senkronla"
+          >
+            <CloudUpload className="h-4 w-4" />
+          </button>
+        )}
         <button
           onClick={() => onDelete(job.id)}
           className="inline-flex items-center justify-center rounded-xl border border-red-900/70 px-3 py-2 text-red-400 transition-colors hover:bg-red-950/50"

@@ -30,6 +30,14 @@ const PROXIES: ProxyAdapter[] = [
   },
 ];
 
+const RAW_PROXIES: Array<(targetUrl: string) => string> = [
+  (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+];
+
+const MAX_IMAGE_INLINE_COUNT = 12;
+const MAX_IMAGE_INLINE_BYTES = 1_500_000;
+
 function looksLikeHtml(content: string): boolean {
   const sample = content.slice(0, 800).toLowerCase();
   return (
@@ -49,7 +57,102 @@ function sanitizeFetchError(message: string): string {
   return message;
 }
 
-export async function fetchViaProxy(url: string): Promise<string> {
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+}
+
+async function fetchRawAssetViaProxy(
+  url: string
+): Promise<{ buffer: ArrayBuffer; contentType: string }> {
+  let lastError: Error | null = null;
+
+  for (const proxy of RAW_PROXIES) {
+    try {
+      const proxiedUrl = proxy(url);
+      const res = await fetch(proxiedUrl, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buffer = await res.arrayBuffer();
+      const contentType = res.headers.get("content-type") || "application/octet-stream";
+      return { buffer, contentType };
+    } catch (e) {
+      lastError = e as Error;
+    }
+  }
+
+  throw lastError ?? new Error("Asset proxy failed");
+}
+
+async function inlineImageAssets(html: string, baseUrl: string): Promise<string> {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const styleLinks = Array.from(doc.querySelectorAll('link[rel="stylesheet"][href]'));
+  const imageElements = Array.from(doc.querySelectorAll("img[src]"));
+  const cache = new Map<string, string>();
+  let inlinedCount = 0;
+
+  for (const linkEl of styleLinks) {
+    const href = linkEl.getAttribute("href");
+    if (!href) continue;
+    try {
+      const absoluteHref = new URL(href, baseUrl).toString();
+      const cssText = await fetchViaProxy(absoluteHref, false);
+      const styleEl = doc.createElement("style");
+      styleEl.textContent = cssText;
+      linkEl.replaceWith(styleEl);
+    } catch {
+      // Keep original stylesheet link if fetch fails.
+    }
+  }
+
+  for (const imageElement of imageElements) {
+    const src = imageElement.getAttribute("src");
+    if (!src) continue;
+
+    let absoluteSrc = "";
+    try {
+      absoluteSrc = new URL(src, baseUrl).toString();
+    } catch {
+      continue;
+    }
+
+    if (absoluteSrc.startsWith("data:")) continue;
+
+    if (cache.has(absoluteSrc)) {
+      imageElement.setAttribute("src", cache.get(absoluteSrc) as string);
+      continue;
+    }
+
+    if (inlinedCount >= MAX_IMAGE_INLINE_COUNT) continue;
+
+    try {
+      const { buffer, contentType } = await fetchRawAssetViaProxy(absoluteSrc);
+      if (buffer.byteLength > MAX_IMAGE_INLINE_BYTES) continue;
+      const base64 = arrayBufferToBase64(buffer);
+      const dataUrl = `data:${contentType};base64,${base64}`;
+      imageElement.setAttribute("src", dataUrl);
+      cache.set(absoluteSrc, dataUrl);
+      inlinedCount += 1;
+    } catch {
+      // Skip failed assets and keep original URL in snapshot.
+    }
+  }
+
+  // Snapshot should be static and self-contained as much as possible.
+  doc.querySelectorAll("script").forEach((el) => el.remove());
+
+  return doc.documentElement.outerHTML;
+}
+
+export async function fetchViaProxy(url: string, expectHtml = true): Promise<string> {
   const failures: string[] = [];
 
   for (const proxy of PROXIES) {
@@ -63,7 +166,7 @@ export async function fetchViaProxy(url: string): Promise<string> {
         throw new Error("Empty response body");
       }
 
-      if (!looksLikeHtml(content)) {
+      if (expectHtml && !looksLikeHtml(content)) {
         throw new Error("Non-HTML response");
       }
 
@@ -191,11 +294,12 @@ export async function scrapePage(url: string): Promise<ArchivedPage> {
   const id = crypto.randomUUID();
 
   try {
-    const html = await fetchViaProxy(url);
-    const { title, description, favicon } = extractMeta(html, url);
-    const links = extractLinks(html, url);
-    const images = extractImages(html, url);
-    const text = extractText(html);
+    const rawHtml = await fetchViaProxy(url);
+    const { title, description, favicon } = extractMeta(rawHtml, url);
+    const links = extractLinks(rawHtml, url);
+    const images = extractImages(rawHtml, url);
+    const text = extractText(rawHtml);
+    const html = await inlineImageAssets(rawHtml, url);
     const size = new Blob([html]).size;
 
     return {
