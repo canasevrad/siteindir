@@ -9,7 +9,7 @@ export interface ArchivedPage {
   links: string[];
   images: string[];
   archivedAt: string;
-  size: number; // bytes
+  size: number;
   status: "success" | "error" | "partial";
   errorMsg?: string;
 }

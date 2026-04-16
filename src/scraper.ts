@@ -1,11 +1,9 @@
 import type { ArchivedPage } from "./types";
 
-// Multiple CORS proxy options for fallback
 const PROXIES = [
   (url: string) =>
     `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-  (url: string) =>
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
 ];
 
 export async function fetchViaProxy(url: string): Promise<string> {
@@ -17,14 +15,12 @@ export async function fetchViaProxy(url: string): Promise<string> {
       const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      // allorigins returns JSON with contents field
       if (proxyUrl.includes("allorigins")) {
         const json = await res.json();
         if (json && json.contents) return json.contents as string;
         throw new Error("allorigins: empty contents");
       }
 
-      // corsproxy returns raw
       return await res.text();
     } catch (e) {
       lastError = e as Error;
@@ -46,16 +42,14 @@ function extractLinks(html: string, baseUrl: string): string[] {
   for (const a of anchors) {
     const href = a.getAttribute("href");
     if (!href) continue;
+
     try {
       const resolved = new URL(href, baseUrl);
-      // only same-origin links
       if (resolved.hostname !== base.hostname) continue;
-      // skip fragments, mailto, tel
-      if (
-        resolved.protocol !== "http:" &&
-        resolved.protocol !== "https:"
-      )
+      if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
         continue;
+      }
+
       resolved.hash = "";
       const clean = resolved.toString();
       if (!seen.has(clean)) {
@@ -63,7 +57,7 @@ function extractLinks(html: string, baseUrl: string): string[] {
         links.push(clean);
       }
     } catch {
-      // ignore bad URLs
+      // Ignore invalid href values.
     }
   }
 
@@ -73,12 +67,15 @@ function extractLinks(html: string, baseUrl: string): string[] {
 function extractImages(html: string, baseUrl: string): string[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
+
   const imgs = Array.from(doc.querySelectorAll("img[src]"));
   const seen = new Set<string>();
   const images: string[] = [];
+
   for (const img of imgs) {
     const src = img.getAttribute("src");
     if (!src) continue;
+
     try {
       const resolved = new URL(src, baseUrl).toString();
       if (!seen.has(resolved)) {
@@ -86,9 +83,10 @@ function extractImages(html: string, baseUrl: string): string[] {
         images.push(resolved);
       }
     } catch {
-      // ignore
+      // Ignore broken src values.
     }
   }
+
   return images;
 }
 
@@ -105,9 +103,7 @@ function extractMeta(
     new URL(url).hostname;
 
   const description =
-    doc
-      .querySelector('meta[name="description"]')
-      ?.getAttribute("content") ||
+    doc.querySelector('meta[name="description"]')?.getAttribute("content") ||
     doc
       .querySelector('meta[property="og:description"]')
       ?.getAttribute("content") ||
@@ -141,13 +137,13 @@ function extractMeta(
 function extractText(html: string): string {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
-  // Remove script and style
   doc.querySelectorAll("script, style, noscript").forEach((el) => el.remove());
   return doc.body?.innerText?.trim() ?? "";
 }
 
 export async function scrapePage(url: string): Promise<ArchivedPage> {
   const id = crypto.randomUUID();
+
   try {
     const html = await fetchViaProxy(url);
     const { title, description, favicon } = extractMeta(html, url);
@@ -172,6 +168,7 @@ export async function scrapePage(url: string): Promise<ArchivedPage> {
     };
   } catch (e) {
     const err = e as Error;
+
     return {
       id,
       url,
