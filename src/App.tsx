@@ -12,7 +12,14 @@ import {
   RefreshCw,
 } from "lucide-react";
 import type { ArchiveJob } from "./types";
-import { loadJobs, upsertJob, deleteJob, formatBytes, saveJobs } from "./store";
+import {
+  initJobsStore,
+  loadJobs,
+  upsertJob,
+  deleteJob,
+  formatBytes,
+  saveJobs,
+} from "./store";
 import { scrapePage } from "./scraper";
 import {
   deleteJobFromCloud,
@@ -36,6 +43,12 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudMessage, setCloudMessage] = useState("");
+
+  useEffect(() => {
+    void initJobsStore().then((initialJobs) => {
+      setJobs(initialJobs);
+    });
+  }, []);
 
   const refreshJobs = useCallback(() => {
     setJobs(loadJobs());
@@ -275,18 +288,42 @@ export default function App() {
 
     const merged = new Map(loadJobs().map((job) => [job.id, job]));
     let restoredCount = 0;
+    let failedCount = 0;
+    let firstError = "";
 
     for (const jobId of listResult.ids) {
       const result = await downloadJobFromCloud(jobId);
       if (result.job) {
         merged.set(jobId, result.job);
         restoredCount += 1;
+      } else {
+        failedCount += 1;
+        if (!firstError && result.error) {
+          firstError = result.error;
+        }
       }
     }
 
-    saveJobs(Array.from(merged.values()));
-    setJobs(loadJobs());
+    const mergedJobs = Array.from(merged.values());
+    const saved = saveJobs(mergedJobs);
+    setJobs(mergedJobs);
+    setSearchQuery("");
     setCloudBusy(false);
+
+    if (!saved) {
+      setCloudMessage(
+        `${restoredCount} arsiv indirildi ama cihaza kaydedilemedi. Tarayici depolama kotasi dolmus olabilir.`
+      );
+      return;
+    }
+
+    if (failedCount > 0) {
+      setCloudMessage(
+        `${restoredCount} arsiv yuklendi, ${failedCount} arsiv yuklenemedi.${firstError ? ` Ilk hata: ${firstError}` : ""}`
+      );
+      return;
+    }
+
     setCloudMessage(`${restoredCount} arsiv buluttan geri yuklendi.`);
   };
 
