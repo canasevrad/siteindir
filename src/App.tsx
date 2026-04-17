@@ -74,7 +74,7 @@ export default function App() {
       const syncedJob: ArchiveJob = {
         ...job,
         cloudPath: result.path,
-        cloudSyncedAt: new Date().toISOString(),
+        cloudSyncedAt: result.syncedAt ?? new Date().toISOString(),
       };
       upsertJob(syncedJob);
       setJobs(loadJobs());

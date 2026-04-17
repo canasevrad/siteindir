@@ -309,7 +309,9 @@ export function isCloudConfigured(): boolean {
   return supabase !== null;
 }
 
-export async function uploadJobToCloud(job: ArchiveJob): Promise<{ path?: string; error?: string }> {
+export async function uploadJobToCloud(
+  job: ArchiveJob
+): Promise<{ path?: string; syncedAt?: string; error?: string }> {
   if (!supabase) return { error: "Supabase ayarlari eksik" };
 
   const cloudJob = deepCloneJob(job);
@@ -321,6 +323,9 @@ export async function uploadJobToCloud(job: ArchiveJob): Promise<{ path?: string
   cloudJob.pages = nextPages;
 
   const path = buildJobObjectPath(cloudJob.id);
+  const syncedAt = new Date().toISOString();
+  cloudJob.cloudPath = path;
+  cloudJob.cloudSyncedAt = syncedAt;
   const payload = JSON.stringify(cloudJob);
   const { error } = await supabase.storage
     .from(bucketName)
@@ -330,7 +335,7 @@ export async function uploadJobToCloud(job: ArchiveJob): Promise<{ path?: string
     });
 
   if (error) return { error: error.message };
-  return { path };
+  return { path, syncedAt };
 }
 
 export async function deleteJobFromCloud(jobId: string): Promise<string | null> {
@@ -396,14 +401,17 @@ export async function downloadJobFromCloud(jobId: string): Promise<{ job?: Archi
   const legacyPath = buildLegacyJobPath(jobId);
 
   let data: Blob | null = null;
+  let resolvedPath = primaryPath;
   {
     const first = await supabase.storage.from(bucketName).download(primaryPath);
     if (!first.error && first.data) {
       data = first.data;
+      resolvedPath = primaryPath;
     } else {
       const second = await supabase.storage.from(bucketName).download(legacyPath);
       if (!second.error && second.data) {
         data = second.data;
+        resolvedPath = legacyPath;
       } else {
         return { error: first.error?.message || second.error?.message || "Bulut dosyasi bulunamadi" };
       }
@@ -421,6 +429,8 @@ export async function downloadJobFromCloud(jobId: string): Promise<{ job?: Archi
     return {
       job: {
         ...job,
+        cloudPath: job.cloudPath ?? resolvedPath,
+        cloudSyncedAt: job.cloudSyncedAt ?? new Date().toISOString(),
         pages: resolvedPages,
       },
     };
