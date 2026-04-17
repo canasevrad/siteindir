@@ -6,7 +6,6 @@ import {
   Cloud,
   LoaderCircle,
   AlertCircle,
-  CloudUpload,
   CloudCheck,
 } from "lucide-react";
 import type { ArchiveJob } from "../types";
@@ -18,7 +17,6 @@ interface JobCardProps {
   onDelete: (id: string) => void | Promise<void>;
   onDeleteCloud: (id: string) => void | Promise<void>;
   onExport: (job: ArchiveJob) => void;
-  onSyncCloud: (job: ArchiveJob) => void | Promise<void>;
   cloudEnabled: boolean;
 }
 
@@ -34,7 +32,6 @@ export default function JobCard({
   onDelete,
   onDeleteCloud,
   onExport,
-  onSyncCloud,
   cloudEnabled,
 }: JobCardProps) {
   const progress = job.totalPages > 0 ? Math.round((job.donePages / job.totalPages) * 100) : 0;
@@ -111,7 +108,7 @@ export default function JobCard({
             </>
           ) : (
             <>
-              <CloudUpload className="h-3.5 w-3.5 text-zinc-500" />
+              <Cloud className="h-3.5 w-3.5 text-zinc-500" />
               Buluta yedeklenmedi
             </>
           )}
@@ -138,16 +135,6 @@ export default function JobCard({
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {cloudEnabled && (
-          <button
-            onClick={() => onSyncCloud(job)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-cyan-900/70 px-3 py-2 text-sm text-cyan-300 transition-colors hover:bg-cyan-950/40"
-            title="Buluta senkronla"
-          >
-            <CloudUpload className="h-4 w-4" />
-            <span className="truncate">Buluta senkronla</span>
-          </button>
-        )}
         {cloudEnabled && (
           <button
             onClick={() => onDeleteCloud(job.id)}

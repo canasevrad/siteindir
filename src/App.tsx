@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus,
   Database,
@@ -9,7 +9,6 @@ import {
   Archive,
   Cloud,
   CloudDownload,
-  RefreshCw,
 } from "lucide-react";
 import type { ArchiveJob } from "./types";
 import {
@@ -43,6 +42,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudMessage, setCloudMessage] = useState("");
+  const autoSyncingRef = useRef(new Set<string>());
 
   useEffect(() => {
     void initJobsStore().then((initialJobs) => {
@@ -63,12 +63,12 @@ export default function App() {
   }, [jobs, refreshJobs]);
 
   const syncOneJobToCloud = useCallback(
-    async (job: ArchiveJob) => {
-      if (!cloudReady) return;
+    async (job: ArchiveJob): Promise<boolean> => {
+      if (!cloudReady) return false;
       const result = await uploadJobToCloud(job);
       if (result.error) {
         setCloudMessage(`Buluta yukleme hatasi: ${result.error}`);
-        return;
+        return false;
       }
 
       const syncedJob: ArchiveJob = {
@@ -78,9 +78,36 @@ export default function App() {
       };
       upsertJob(syncedJob);
       setJobs(loadJobs());
+      return true;
     },
     []
   );
+
+  useEffect(() => {
+    if (!cloudReady || cloudBusy) return;
+
+    const candidate = jobs.find(
+      (job) =>
+        job.status === "done" &&
+        !job.cloudSyncedAt &&
+        !autoSyncingRef.current.has(job.id)
+    );
+
+    if (!candidate) return;
+
+    autoSyncingRef.current.add(candidate.id);
+    setCloudBusy(true);
+    setCloudMessage(`${candidate.siteName} otomatik olarak buluta yedekleniyor...`);
+
+    void (async () => {
+      const ok = await syncOneJobToCloud(candidate);
+      autoSyncingRef.current.delete(candidate.id);
+      setCloudBusy(false);
+      if (ok) {
+        setCloudMessage(`${candidate.siteName} icin otomatik bulut yedegi tamamlandi.`);
+      }
+    })();
+  }, [jobs, cloudBusy, cloudReady, syncOneJobToCloud]);
 
   const handleStart = async (url: string, maxPages: number) => {
     setShowModal(false);
@@ -176,9 +203,8 @@ export default function App() {
     activeJobRefs.delete(jobId);
     setJobs(loadJobs());
 
-    if (cloudReady) {
-      await syncOneJobToCloud(currentJob);
-      setCloudMessage("Arsiv buluta da yedeklendi.");
+    if (cloudReady && finalizedStatus === "done") {
+      setCloudMessage("Arsiv tamamlandi. Bulut yedek otomatik yapiliyor...");
     }
   };
 
@@ -238,36 +264,6 @@ export default function App() {
     a.download = `webarshiv_${job.siteName}_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  const handleSyncSingle = async (job: ArchiveJob) => {
-    if (!cloudReady) {
-      setCloudMessage("Supabase ayarlari yapilmadigi icin bulut kapali.");
-      return;
-    }
-    setCloudBusy(true);
-    setCloudMessage("");
-    await syncOneJobToCloud(job);
-    setCloudBusy(false);
-    setCloudMessage(`${job.siteName} buluta senkronlandi.`);
-  };
-
-  const handleSyncAll = async () => {
-    if (!cloudReady) {
-      setCloudMessage("Supabase ayarlari yapilmadigi icin bulut kapali.");
-      return;
-    }
-
-    setCloudBusy(true);
-    setCloudMessage("");
-    const latestJobs = loadJobs();
-
-    for (const job of latestJobs) {
-      await syncOneJobToCloud(job);
-    }
-
-    setCloudBusy(false);
-    setCloudMessage(`${latestJobs.length} arsiv buluta gonderildi.`);
   };
 
   const handlePullCloud = async () => {
@@ -391,14 +387,6 @@ export default function App() {
               <span className="hidden md:inline">Buluttan cek</span>
             </button>
             <button
-              onClick={handleSyncAll}
-              disabled={cloudBusy}
-              className="inline-flex items-center gap-1 rounded-xl border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <RefreshCw className={`h-4 w-4 ${cloudBusy ? "animate-spin" : ""}`} />
-              <span className="hidden md:inline">Buluta senkronla</span>
-            </button>
-            <button
               onClick={() => setShowModal(true)}
               className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2 font-semibold text-zinc-950 transition-colors hover:bg-cyan-400"
             >
@@ -502,7 +490,6 @@ export default function App() {
                 onDelete={handleDelete}
                 onDeleteCloud={handleDeleteCloudCopy}
                 onExport={handleExport}
-                onSyncCloud={handleSyncSingle}
                 cloudEnabled={cloudReady}
               />
             ))}
