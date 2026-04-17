@@ -35,8 +35,9 @@ const RAW_PROXIES: Array<(targetUrl: string) => string> = [
   (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
 ];
 
-const MAX_IMAGE_INLINE_COUNT = 12;
-const MAX_IMAGE_INLINE_BYTES = 1_500_000;
+const MAX_INLINE_ASSET_COUNT = 40;
+const MAX_INLINE_IMAGE_BYTES = 3_000_000;
+const MAX_INLINE_GIF_BYTES = 10_000_000;
 
 function looksLikeHtml(content: string): boolean {
   const sample = content.slice(0, 800).toLowerCase();
@@ -70,6 +71,130 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+function getUrlExtension(url: string): string {
+  const cleanUrl = url.split("?")[0]?.split("#")[0] ?? "";
+  const lastDotIndex = cleanUrl.lastIndexOf(".");
+  if (lastDotIndex < 0) return "";
+  return cleanUrl.slice(lastDotIndex + 1).toLowerCase();
+}
+
+function isLikelyImageAsset(url: string, contentType: string): boolean {
+  if (contentType.startsWith("image/")) return true;
+  const ext = getUrlExtension(url);
+  return ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp"].includes(ext);
+}
+
+function isGifAsset(url: string, contentType: string): boolean {
+  if (contentType.toLowerCase().includes("image/gif")) return true;
+  return getUrlExtension(url) === "gif";
+}
+
+function shouldInlineAsset(url: string, contentType: string, byteLength: number): boolean {
+  if (!isLikelyImageAsset(url, contentType)) return false;
+  if (isGifAsset(url, contentType)) {
+    return byteLength <= MAX_INLINE_GIF_BYTES;
+  }
+  return byteLength <= MAX_INLINE_IMAGE_BYTES;
+}
+
+function extractUrlsFromSrcset(srcset: string, baseUrl: string): string[] {
+  const candidates = srcset
+    .split(",")
+    .map((chunk) => chunk.trim().split(/\s+/)[0])
+    .filter(Boolean);
+
+  const resolved: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      resolved.push(new URL(candidate, baseUrl).toString());
+    } catch {
+      // Ignore broken srcset candidates.
+    }
+  }
+  return resolved;
+}
+
+function extractCssUrls(cssText: string): string[] {
+  const urls: string[] = [];
+  const regex = /url\(([^)]+)\)/gi;
+  let match: RegExpExecArray | null = regex.exec(cssText);
+  while (match) {
+    const raw = match[1]?.trim().replace(/^['"]|['"]$/g, "");
+    if (raw && !raw.startsWith("data:") && !raw.startsWith("blob:")) {
+      urls.push(raw);
+    }
+    match = regex.exec(cssText);
+  }
+  return urls;
+}
+
+function replaceAllLiteral(input: string, search: string, replacement: string): string {
+  if (!search) return input;
+  return input.split(search).join(replacement);
+}
+
+async function inlineCssAssetUrls(
+  cssText: string,
+  baseUrl: string,
+  cache: Map<string, string>,
+  inlineState: { count: number }
+): Promise<string> {
+  const urls = extractCssUrls(cssText);
+  let nextCss = cssText;
+
+  for (const urlCandidate of urls) {
+    let absoluteUrl = "";
+    try {
+      absoluteUrl = new URL(urlCandidate, baseUrl).toString();
+    } catch {
+      continue;
+    }
+
+    if (cache.has(absoluteUrl)) {
+      const cached = cache.get(absoluteUrl) as string;
+      nextCss = replaceAllLiteral(nextCss, urlCandidate, cached);
+      continue;
+    }
+
+    if (inlineState.count >= MAX_INLINE_ASSET_COUNT) continue;
+
+    try {
+      const { buffer, contentType } = await fetchRawAssetViaProxy(absoluteUrl);
+      if (!shouldInlineAsset(absoluteUrl, contentType, buffer.byteLength)) continue;
+      const base64 = arrayBufferToBase64(buffer);
+      const dataUrl = `data:${contentType};base64,${base64}`;
+      cache.set(absoluteUrl, dataUrl);
+      nextCss = replaceAllLiteral(nextCss, urlCandidate, dataUrl);
+      inlineState.count += 1;
+    } catch {
+      // Keep original CSS URL when fetch fails.
+    }
+  }
+
+  return nextCss;
+}
+
+function getImageCandidates(el: Element, baseUrl: string): string[] {
+  const candidates: string[] = [];
+  const srcLikeAttrs = ["src", "data-src", "data-original", "data-lazy-src"];
+  for (const attr of srcLikeAttrs) {
+    const value = el.getAttribute(attr);
+    if (!value) continue;
+    try {
+      candidates.push(new URL(value, baseUrl).toString());
+    } catch {
+      // Ignore invalid candidate.
+    }
+  }
+
+  const srcset = el.getAttribute("srcset") || el.getAttribute("data-srcset");
+  if (srcset) {
+    candidates.push(...extractUrlsFromSrcset(srcset, baseUrl));
+  }
+
+  return Array.from(new Set(candidates));
+}
+
 async function fetchRawAssetViaProxy(
   url: string
 ): Promise<{ buffer: ArrayBuffer; contentType: string }> {
@@ -95,9 +220,10 @@ async function inlineImageAssets(html: string, baseUrl: string): Promise<string>
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
   const styleLinks = Array.from(doc.querySelectorAll('link[rel="stylesheet"][href]'));
-  const imageElements = Array.from(doc.querySelectorAll("img[src]"));
+  const imageElements = Array.from(doc.querySelectorAll("img, source"));
+  const inlineStyleElements = Array.from(doc.querySelectorAll<HTMLElement>("[style*='url(']"));
   const cache = new Map<string, string>();
-  let inlinedCount = 0;
+  const inlineState = { count: 0 };
 
   for (const linkEl of styleLinks) {
     const href = linkEl.getAttribute("href");
@@ -105,44 +231,77 @@ async function inlineImageAssets(html: string, baseUrl: string): Promise<string>
     try {
       const absoluteHref = new URL(href, baseUrl).toString();
       const cssText = await fetchViaProxy(absoluteHref, false);
+      const cssWithInlinedAssets = await inlineCssAssetUrls(
+        cssText,
+        absoluteHref,
+        cache,
+        inlineState
+      );
       const styleEl = doc.createElement("style");
-      styleEl.textContent = cssText;
+      styleEl.textContent = cssWithInlinedAssets;
       linkEl.replaceWith(styleEl);
     } catch {
       // Keep original stylesheet link if fetch fails.
     }
   }
 
+  const inlineStyleTags = Array.from(doc.querySelectorAll("style"));
+  for (const styleEl of inlineStyleTags) {
+    const cssText = styleEl.textContent;
+    if (!cssText) continue;
+    styleEl.textContent = await inlineCssAssetUrls(cssText, baseUrl, cache, inlineState);
+  }
+
+  for (const styledEl of inlineStyleElements) {
+    const styleValue = styledEl.getAttribute("style");
+    if (!styleValue) continue;
+    const updated = await inlineCssAssetUrls(styleValue, baseUrl, cache, inlineState);
+    styledEl.setAttribute("style", updated);
+  }
+
   for (const imageElement of imageElements) {
-    const src = imageElement.getAttribute("src");
-    if (!src) continue;
+    const candidates = getImageCandidates(imageElement, baseUrl);
+    if (candidates.length === 0) continue;
 
-    let absoluteSrc = "";
-    try {
-      absoluteSrc = new URL(src, baseUrl).toString();
-    } catch {
-      continue;
-    }
+    for (const absoluteSrc of candidates) {
+      if (absoluteSrc.startsWith("data:")) continue;
 
-    if (absoluteSrc.startsWith("data:")) continue;
+      if (cache.has(absoluteSrc)) {
+        const cachedDataUrl = cache.get(absoluteSrc) as string;
+        if (imageElement.hasAttribute("src")) imageElement.setAttribute("src", cachedDataUrl);
+        if (imageElement.hasAttribute("data-src")) {
+          imageElement.setAttribute("data-src", cachedDataUrl);
+        }
+        if (imageElement.hasAttribute("srcset")) {
+          imageElement.setAttribute("srcset", cachedDataUrl);
+        }
+        if (imageElement.hasAttribute("data-srcset")) {
+          imageElement.setAttribute("data-srcset", cachedDataUrl);
+        }
+        break;
+      }
 
-    if (cache.has(absoluteSrc)) {
-      imageElement.setAttribute("src", cache.get(absoluteSrc) as string);
-      continue;
-    }
+      if (inlineState.count >= MAX_INLINE_ASSET_COUNT) break;
 
-    if (inlinedCount >= MAX_IMAGE_INLINE_COUNT) continue;
+      try {
+        const { buffer, contentType } = await fetchRawAssetViaProxy(absoluteSrc);
+        if (!shouldInlineAsset(absoluteSrc, contentType, buffer.byteLength)) continue;
 
-    try {
-      const { buffer, contentType } = await fetchRawAssetViaProxy(absoluteSrc);
-      if (buffer.byteLength > MAX_IMAGE_INLINE_BYTES) continue;
-      const base64 = arrayBufferToBase64(buffer);
-      const dataUrl = `data:${contentType};base64,${base64}`;
-      imageElement.setAttribute("src", dataUrl);
-      cache.set(absoluteSrc, dataUrl);
-      inlinedCount += 1;
-    } catch {
-      // Skip failed assets and keep original URL in snapshot.
+        const base64 = arrayBufferToBase64(buffer);
+        const dataUrl = `data:${contentType};base64,${base64}`;
+        cache.set(absoluteSrc, dataUrl);
+        inlineState.count += 1;
+
+        if (imageElement.hasAttribute("src")) imageElement.setAttribute("src", dataUrl);
+        if (imageElement.hasAttribute("data-src")) imageElement.setAttribute("data-src", dataUrl);
+        if (imageElement.hasAttribute("srcset")) imageElement.setAttribute("srcset", dataUrl);
+        if (imageElement.hasAttribute("data-srcset")) {
+          imageElement.setAttribute("data-srcset", dataUrl);
+        }
+        break;
+      } catch {
+        // Skip failed assets and keep original URL in snapshot.
+      }
     }
   }
 
@@ -216,23 +375,41 @@ function extractLinks(html: string, baseUrl: string): string[] {
 function extractImages(html: string, baseUrl: string): string[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
-
-  const imgs = Array.from(doc.querySelectorAll("img[src]"));
   const seen = new Set<string>();
   const images: string[] = [];
 
-  for (const img of imgs) {
-    const src = img.getAttribute("src");
-    if (!src) continue;
-
+  const pushImageUrl = (candidate: string) => {
     try {
-      const resolved = new URL(src, baseUrl).toString();
+      const resolved = new URL(candidate, baseUrl).toString();
       if (!seen.has(resolved)) {
         seen.add(resolved);
         images.push(resolved);
       }
     } catch {
-      // Ignore broken src values.
+      // Ignore broken URLs.
+    }
+  };
+
+  const imageLikeElements = Array.from(doc.querySelectorAll("img, source"));
+  for (const el of imageLikeElements) {
+    for (const candidate of getImageCandidates(el, baseUrl)) {
+      pushImageUrl(candidate);
+    }
+  }
+
+  const styledElements = Array.from(doc.querySelectorAll<HTMLElement>("[style*='url(']"));
+  for (const styledEl of styledElements) {
+    const styleValue = styledEl.getAttribute("style") || "";
+    for (const cssUrl of extractCssUrls(styleValue)) {
+      pushImageUrl(cssUrl);
+    }
+  }
+
+  const styleTags = Array.from(doc.querySelectorAll("style"));
+  for (const styleTag of styleTags) {
+    const cssText = styleTag.textContent || "";
+    for (const cssUrl of extractCssUrls(cssText)) {
+      pushImageUrl(cssUrl);
     }
   }
 
