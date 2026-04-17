@@ -118,46 +118,56 @@ export default function JobCard({
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => onView(job)}
-          className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+          className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
         >
           <Eye className="h-4 w-4" />
-          Goruntule
+          <span className="truncate">Goruntule</span>
         </button>
         <button
           onClick={() => onExport(job)}
-          className="inline-flex shrink-0 items-center justify-center rounded-xl border border-zinc-700 px-3 py-2 text-zinc-200 transition-colors hover:bg-zinc-800"
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
           title="JSON disa aktar"
         >
           <Download className="h-4 w-4" />
+          <span className="truncate">JSON indir</span>
         </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {cloudEnabled && (
           <button
             onClick={() => onSyncCloud(job)}
-            className="inline-flex shrink-0 items-center justify-center rounded-xl border border-cyan-900/70 px-3 py-2 text-cyan-300 transition-colors hover:bg-cyan-950/40"
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-cyan-900/70 px-3 py-2 text-sm text-cyan-300 transition-colors hover:bg-cyan-950/40"
             title="Buluta senkronla"
           >
             <CloudUpload className="h-4 w-4" />
+            <span className="truncate">Buluta senkronla</span>
           </button>
         )}
-        {cloudEnabled && job.cloudSyncedAt && (
+        {cloudEnabled && (
           <button
             onClick={() => onDeleteCloud(job.id)}
-            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-orange-900/70 px-2.5 py-2 text-xs text-orange-300 transition-colors hover:bg-orange-950/50"
+            disabled={!job.cloudSyncedAt}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-orange-900/70 px-3 py-2 text-sm text-orange-300 transition-colors hover:bg-orange-950/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
             title="Sadece bulut kopyasini sil"
           >
             <Cloud className="h-4 w-4" />
-            <span className="hidden lg:inline">Buluttan sil</span>
+            <span className="truncate">Buluttan sil</span>
           </button>
         )}
+        </div>
+
         <button
           onClick={() => onDelete(job.id)}
-          className="inline-flex shrink-0 items-center justify-center rounded-xl border border-red-900/70 px-3 py-2 text-red-400 transition-colors hover:bg-red-950/50"
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-900/70 px-3 py-2 text-sm text-red-400 transition-colors hover:bg-red-950/50"
           title="Yerelden sil"
         >
           <Trash2 className="h-4 w-4" />
+          <span className="truncate">Yerelden sil</span>
         </button>
       </div>
     </article>
