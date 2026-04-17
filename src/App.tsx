@@ -170,6 +170,11 @@ export default function App() {
   };
 
   const handleDelete = async (id: string) => {
+    const confirmed = window.confirm(
+      "Bu arsivin yerel kopyasini silmek istiyor musun? Buluttaki yedek korunacak."
+    );
+    if (!confirmed) return;
+
     activeJobRefs.set(id, false);
     deleteJob(id);
     setJobs(loadJobs());
@@ -178,6 +183,11 @@ export default function App() {
   };
 
   const handleDeleteCloudCopy = async (id: string) => {
+    const confirmed = window.confirm(
+      "Bulut kopyasini silmek istiyor musun? Bu islem geri alinamaz."
+    );
+    if (!confirmed) return;
+
     if (!cloudReady) {
       setCloudMessage("Supabase ayarlari yapilmadigi icin bulut kapali.");
       return;
