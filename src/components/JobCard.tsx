@@ -18,6 +18,8 @@ interface JobCardProps {
   onDeleteCloud: (id: string) => void | Promise<void>;
   onExport: (job: ArchiveJob) => void;
   cloudEnabled: boolean;
+  cloudProgressPercent?: number;
+  cloudProgressStage?: "preparing" | "uploading" | "done";
 }
 
 function statusLabel(job: ArchiveJob): string {
@@ -33,6 +35,8 @@ export default function JobCard({
   onDeleteCloud,
   onExport,
   cloudEnabled,
+  cloudProgressPercent,
+  cloudProgressStage,
 }: JobCardProps) {
   const progress = job.totalPages > 0 ? Math.round((job.donePages / job.totalPages) * 100) : 0;
   const successPages = job.pages.filter((p) => p.status === "success").length;
@@ -101,7 +105,13 @@ export default function JobCard({
 
       {cloudEnabled && (
         <p className="mb-3 inline-flex items-center gap-1 text-xs text-zinc-400">
-          {job.cloudSyncedAt ? (
+          {typeof cloudProgressPercent === "number" ? (
+            <>
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+              Buluta yedekleniyor %{Math.min(100, Math.max(0, Math.round(cloudProgressPercent)))}
+              {cloudProgressStage === "uploading" ? " (JSON yukleniyor)" : ""}
+            </>
+          ) : job.cloudSyncedAt ? (
             <>
               <CloudCheck className="h-3.5 w-3.5 text-emerald-400" />
               Bulut yedegi var

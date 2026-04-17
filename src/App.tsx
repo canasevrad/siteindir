@@ -21,6 +21,7 @@ import {
 } from "./store";
 import { scrapePage } from "./scraper";
 import {
+  type CloudUploadProgress,
   deleteJobFromCloud,
   downloadJobFromCloud,
   isCloudConfigured,
@@ -42,6 +43,13 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudMessage, setCloudMessage] = useState("");
+  const [cloudProgress, setCloudProgress] = useState<{
+    jobId: string;
+    percent: number;
+    donePages: number;
+    totalPages: number;
+    stage: CloudUploadProgress["stage"];
+  } | null>(null);
   const autoSyncingRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -65,9 +73,26 @@ export default function App() {
   const syncOneJobToCloud = useCallback(
     async (job: ArchiveJob): Promise<boolean> => {
       if (!cloudReady) return false;
-      const result = await uploadJobToCloud(job);
+      setCloudProgress({
+        jobId: job.id,
+        percent: 1,
+        donePages: 0,
+        totalPages: job.pages.length,
+        stage: "preparing",
+      });
+
+      const result = await uploadJobToCloud(job, (progress) => {
+        setCloudProgress({
+          jobId: job.id,
+          percent: progress.percent,
+          donePages: progress.donePages,
+          totalPages: progress.totalPages,
+          stage: progress.stage,
+        });
+      });
       if (result.error) {
         setCloudMessage(`Buluta yukleme hatasi: ${result.error}`);
+        setCloudProgress(null);
         return false;
       }
 
@@ -78,6 +103,7 @@ export default function App() {
       };
       upsertJob(syncedJob);
       setJobs(loadJobs());
+      setCloudProgress(null);
       return true;
     },
     []
@@ -406,8 +432,24 @@ export default function App() {
               ? "Bulut yedek acik. Arsivler Supabase Storage uzerine senkronlanabilir."
               : "Bulut kapali. .env icine VITE_SUPABASE_URL ve VITE_SUPABASE_ANON_KEY eklemelisin."}
           </p>
-          {cloudMessage && <p className="text-xs text-cyan-400">{cloudMessage}</p>}
+          <div className="text-right">
+            {cloudProgress && (
+              <p className="text-xs text-cyan-300">
+                Buluta yedekleniyor: %{cloudProgress.percent} ({cloudProgress.donePages}/
+                {cloudProgress.totalPages || 0} sayfa)
+              </p>
+            )}
+            {cloudMessage && <p className="text-xs text-cyan-400">{cloudMessage}</p>}
+          </div>
         </div>
+        {cloudProgress && (
+          <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+            <div
+              className="h-full rounded-full bg-cyan-500 transition-all duration-300"
+              style={{ width: `${Math.min(100, Math.max(0, cloudProgress.percent))}%` }}
+            />
+          </div>
+        )}
 
         <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
           {[
@@ -491,6 +533,8 @@ export default function App() {
                 onDeleteCloud={handleDeleteCloudCopy}
                 onExport={handleExport}
                 cloudEnabled={cloudReady}
+                cloudProgressPercent={cloudProgress?.jobId === job.id ? cloudProgress.percent : undefined}
+                cloudProgressStage={cloudProgress?.jobId === job.id ? cloudProgress.stage : undefined}
               />
             ))}
           </div>

@@ -18,6 +18,13 @@ const ASSET_PLACEHOLDER_PREFIX = "webarshiv-asset://";
 const MAX_CLOUD_ASSET_BYTES = 15_000_000;
 const MAX_CLOUD_ASSETS_PER_PAGE = 160;
 
+export interface CloudUploadProgress {
+  percent: number;
+  stage: "preparing" | "uploading" | "done";
+  donePages: number;
+  totalPages: number;
+}
+
 function buildJobObjectPath(jobId: string): string {
   return `${objectPrefix}/jobs/${jobId}.json`;
 }
@@ -310,14 +317,32 @@ export function isCloudConfigured(): boolean {
 }
 
 export async function uploadJobToCloud(
-  job: ArchiveJob
+  job: ArchiveJob,
+  onProgress?: (progress: CloudUploadProgress) => void
 ): Promise<{ path?: string; syncedAt?: string; error?: string }> {
   if (!supabase) return { error: "Supabase ayarlari eksik" };
 
   const cloudJob = deepCloneJob(job);
+  const totalPages = cloudJob.pages.length;
+  onProgress?.({
+    percent: totalPages > 0 ? 1 : 90,
+    stage: "preparing",
+    donePages: 0,
+    totalPages,
+  });
+
   const nextPages: ArchivedPage[] = [];
-  for (const page of cloudJob.pages) {
+  for (let index = 0; index < cloudJob.pages.length; index += 1) {
+    const page = cloudJob.pages[index];
     nextPages.push(await rewritePageWithCloudAssets(cloudJob.id, page));
+    const donePages = index + 1;
+    const percent = totalPages > 0 ? Math.min(96, Math.max(2, Math.round((donePages / totalPages) * 96))) : 96;
+    onProgress?.({
+      percent,
+      stage: "preparing",
+      donePages,
+      totalPages,
+    });
   }
 
   cloudJob.pages = nextPages;
@@ -327,6 +352,13 @@ export async function uploadJobToCloud(
   cloudJob.cloudPath = path;
   cloudJob.cloudSyncedAt = syncedAt;
   const payload = JSON.stringify(cloudJob);
+  onProgress?.({
+    percent: 98,
+    stage: "uploading",
+    donePages: totalPages,
+    totalPages,
+  });
+
   const { error } = await supabase.storage
     .from(bucketName)
     .upload(path, payload, {
@@ -335,6 +367,12 @@ export async function uploadJobToCloud(
     });
 
   if (error) return { error: error.message };
+  onProgress?.({
+    percent: 100,
+    stage: "done",
+    donePages: totalPages,
+    totalPages,
+  });
   return { path, syncedAt };
 }
 
