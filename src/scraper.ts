@@ -159,7 +159,7 @@ async function inlineCssAssetUrls(
     if (inlineState.count >= MAX_INLINE_ASSET_COUNT) continue;
 
     try {
-      const { buffer, contentType } = await fetchRawAssetViaProxy(absoluteUrl);
+      const { buffer, contentType } = await fetchBinaryViaProxy(absoluteUrl);
       if (!shouldInlineAsset(absoluteUrl, contentType, buffer.byteLength)) continue;
       const base64 = arrayBufferToBase64(buffer);
       const dataUrl = `data:${contentType};base64,${base64}`;
@@ -195,7 +195,7 @@ function getImageCandidates(el: Element, baseUrl: string): string[] {
   return Array.from(new Set(candidates));
 }
 
-async function fetchRawAssetViaProxy(
+export async function fetchBinaryViaProxy(
   url: string
 ): Promise<{ buffer: ArrayBuffer; contentType: string }> {
   let lastError: Error | null = null;
@@ -284,7 +284,7 @@ async function inlineImageAssets(html: string, baseUrl: string): Promise<string>
       if (inlineState.count >= MAX_INLINE_ASSET_COUNT) break;
 
       try {
-        const { buffer, contentType } = await fetchRawAssetViaProxy(absoluteSrc);
+        const { buffer, contentType } = await fetchBinaryViaProxy(absoluteSrc);
         if (!shouldInlineAsset(absoluteSrc, contentType, buffer.byteLength)) continue;
 
         const base64 = arrayBufferToBase64(buffer);

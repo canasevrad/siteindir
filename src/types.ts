@@ -12,6 +12,7 @@ export interface ArchivedPage {
   size: number;
   status: "success" | "error" | "partial";
   errorMsg?: string;
+  cloudAssetMap?: Record<string, string>;
 }
 
 export interface ArchiveJob {
