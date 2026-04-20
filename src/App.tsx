@@ -116,7 +116,8 @@ export default function App() {
       (job) =>
         job.status === "done" &&
         !job.cloudSyncedAt &&
-        !autoSyncingRef.current.has(job.id)
+        !autoSyncingRef.current.has(job.id) &&
+        job.pages.length > 0
     );
 
     if (!candidate) return;
@@ -225,12 +226,41 @@ export default function App() {
           : undefined,
     };
 
-    upsertJob(currentJob);
     activeJobRefs.delete(jobId);
-    setJobs(loadJobs());
 
     if (cloudReady && finalizedStatus === "done") {
       setCloudMessage("Arsiv tamamlandi. Bulut yedek otomatik yapiliyor...");
+      void (async () => {
+        setCloudBusy(true);
+        const result = await uploadJobToCloud(currentJob, (progress) => {
+          setCloudProgress({
+            jobId: currentJob.id,
+            percent: progress.percent,
+            donePages: progress.donePages,
+            totalPages: progress.totalPages,
+            stage: progress.stage,
+          });
+        });
+        setCloudBusy(false);
+        setCloudProgress(null);
+
+        if (result.error) {
+          setCloudMessage(`Buluta yukleme hatasi: ${result.error}`);
+          return;
+        }
+
+        const syncedJob: ArchiveJob = {
+          ...currentJob,
+          cloudPath: result.path,
+          cloudSyncedAt: result.syncedAt ?? new Date().toISOString(),
+        };
+        upsertJob(syncedJob);
+        setJobs(loadJobs());
+        setCloudMessage(`${currentJob.siteName} buluta yedeklendi.`);
+      })();
+    } else {
+      upsertJob(currentJob);
+      setJobs(loadJobs());
     }
   };
 
