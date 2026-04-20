@@ -322,6 +322,20 @@ export async function uploadJobToCloud(
 ): Promise<{ path?: string; syncedAt?: string; error?: string }> {
   if (!supabase) return { error: "Supabase ayarlari eksik" };
 
+  // Önce dosya zaten bulutta var mı kontrol et
+  const existingPath = buildJobObjectPath(job.id);
+  const { data: existingFile } = await supabase.storage.from(bucketName).info(existingPath);
+  if (existingFile) {
+    // Dosya zaten var, upload skip
+    onProgress?.({
+      percent: 100,
+      stage: "done",
+      donePages: job.pages.length,
+      totalPages: job.pages.length,
+    });
+    return { path: existingPath, syncedAt: job.cloudSyncedAt || new Date().toISOString() };
+  }
+
   const cloudJob = deepCloneJob(job);
   const totalPages = cloudJob.pages.length;
   onProgress?.({

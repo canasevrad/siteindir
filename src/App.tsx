@@ -73,6 +73,13 @@ export default function App() {
   const syncOneJobToCloud = useCallback(
     async (job: ArchiveJob): Promise<boolean> => {
       if (!cloudReady) return false;
+      
+      // Zaten bulutta varsa skip et
+      if (job.cloudSyncedAt) {
+        setCloudProgress(null);
+        return true;
+      }
+      
       setCloudProgress({
         jobId: job.id,
         percent: 1,
@@ -106,7 +113,7 @@ export default function App() {
       setCloudProgress(null);
       return true;
     },
-    []
+    [cloudReady]
   );
 
   useEffect(() => {
