@@ -33,8 +33,30 @@ import JobCard from "./components/JobCard";
 import ArchiveViewer from "./components/ArchiveViewer";
 
 const activeJobRefs = new Map<string, boolean>();
+const CLOUD_PROGRESS_KEY = "webarshiv_cloud_progress";
 
 const cloudReady = isCloudConfigured();
+
+type CloudProgressState = {
+  jobId: string;
+  percent: number;
+  doneAssets: number;
+  totalAssets: number;
+  donePages: number;
+  totalPages: number;
+  stage: CloudUploadProgress["stage"];
+};
+
+function readPersistedCloudProgress(): CloudProgressState | null {
+  try {
+    const raw = localStorage.getItem(CLOUD_PROGRESS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CloudProgressState;
+    return parsed?.jobId ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function App() {
   const [jobs, setJobs] = useState<ArchiveJob[]>(() => loadJobs());
@@ -43,39 +65,21 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudMessage, setCloudMessage] = useState("");
-  const [cloudProgress, setCloudProgress] = useState<{
-    jobId: string;
-    percent: number;
-    doneAssets: number;
-    totalAssets: number;
-    donePages: number;
-    totalPages: number;
-    stage: CloudUploadProgress["stage"];
-  } | null>(null);
+  const [cloudProgress, setCloudProgress] = useState<CloudProgressState | null>(null);
   const autoSyncingRef = useRef(new Set<string>());
 
   // Progress'i localStorage'dan yükle
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("webarshiv_cloud_progress");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.jobId) {
-          setCloudProgress(parsed);
-        }
-      }
-    } catch {
-      // ignore
-    }
+    setCloudProgress(readPersistedCloudProgress());
   }, []);
 
   // Progress'i localStorage'a kaydet
   useEffect(() => {
     try {
       if (cloudProgress) {
-        localStorage.setItem("webarshiv_cloud_progress", JSON.stringify(cloudProgress));
+        localStorage.setItem(CLOUD_PROGRESS_KEY, JSON.stringify(cloudProgress));
       } else {
-        localStorage.removeItem("webarshiv_cloud_progress");
+        localStorage.removeItem(CLOUD_PROGRESS_KEY);
       }
     } catch {
       // ignore
@@ -109,26 +113,48 @@ export default function App() {
         setCloudProgress(null);
         return true;
       }
+
+      const persisted = readPersistedCloudProgress();
+      const initialProgress =
+        persisted && persisted.jobId === job.id
+          ? persisted
+          : {
+              jobId: job.id,
+              percent: 1,
+              doneAssets: 0,
+              totalAssets: 0,
+              donePages: 0,
+              totalPages: job.pages.length,
+              stage: "preparing" as const,
+            };
       
-      setCloudProgress({
-        jobId: job.id,
-        percent: 1,
-        doneAssets: 0,
-        totalAssets: 0,
-        donePages: 0,
-        totalPages: job.pages.length,
-        stage: "preparing",
-      });
+      setCloudProgress(initialProgress);
 
       const result = await uploadJobToCloud(job, (progress) => {
-        setCloudProgress({
-          jobId: job.id,
-          percent: progress.percent,
-          doneAssets: progress.doneAssets ?? 0,
-          totalAssets: progress.totalAssets ?? 0,
-          donePages: progress.donePages,
-          totalPages: progress.totalPages,
-          stage: progress.stage,
+        setCloudProgress((prev) => {
+          const prevForJob = prev && prev.jobId === job.id ? prev : null;
+          const next: CloudProgressState = {
+            jobId: job.id,
+            percent: prevForJob ? Math.max(prevForJob.percent, progress.percent) : progress.percent,
+            doneAssets: prevForJob
+              ? Math.max(prevForJob.doneAssets, progress.doneAssets ?? 0)
+              : progress.doneAssets ?? 0,
+            totalAssets: Math.max(
+              prevForJob?.totalAssets ?? 0,
+              progress.totalAssets ?? 0
+            ),
+            donePages: prevForJob
+              ? Math.max(prevForJob.donePages, progress.donePages)
+              : progress.donePages,
+            totalPages: Math.max(prevForJob?.totalPages ?? 0, progress.totalPages),
+            stage:
+              progress.stage === "done" || (prevForJob?.stage === "uploading" && progress.stage === "preparing")
+                ? prevForJob?.stage === "uploading" && progress.stage === "preparing"
+                  ? "uploading"
+                  : "done"
+                : progress.stage,
+          };
+          return next;
         });
       });
       if (result.error) {
@@ -274,14 +300,21 @@ export default function App() {
       void (async () => {
         setCloudBusy(true);
         const result = await uploadJobToCloud(currentJob, (progress) => {
-          setCloudProgress({
-            jobId: currentJob.id,
-            percent: progress.percent,
-            doneAssets: progress.doneAssets ?? 0,
-            totalAssets: progress.totalAssets ?? 0,
-            donePages: progress.donePages,
-            totalPages: progress.totalPages,
-            stage: progress.stage,
+          setCloudProgress((prev) => {
+            const prevForJob = prev && prev.jobId === currentJob.id ? prev : null;
+            return {
+              jobId: currentJob.id,
+              percent: prevForJob ? Math.max(prevForJob.percent, progress.percent) : progress.percent,
+              doneAssets: prevForJob
+                ? Math.max(prevForJob.doneAssets, progress.doneAssets ?? 0)
+                : progress.doneAssets ?? 0,
+              totalAssets: Math.max(prevForJob?.totalAssets ?? 0, progress.totalAssets ?? 0),
+              donePages: prevForJob
+                ? Math.max(prevForJob.donePages, progress.donePages)
+                : progress.donePages,
+              totalPages: Math.max(prevForJob?.totalPages ?? 0, progress.totalPages),
+              stage: progress.stage,
+            };
           });
         });
         setCloudBusy(false);
