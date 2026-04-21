@@ -19,7 +19,7 @@ import {
   formatBytes,
   saveJobs,
 } from "./store";
-import { scrapePage } from "./scraper";
+import { discoverSitemapLinks, scrapePage } from "./scraper";
 import {
   type CloudUploadProgress,
   deleteJobFromCloud,
@@ -167,6 +167,7 @@ export default function App() {
         ...job,
         cloudPath: result.path,
         cloudSyncedAt: result.syncedAt ?? new Date().toISOString(),
+        cloudSyncPaused: undefined,
       };
       upsertJob(syncedJob);
       setJobs(loadJobs());
@@ -183,6 +184,7 @@ export default function App() {
       (job) =>
         job.status === "done" &&
         !job.cloudSyncedAt &&
+        !job.cloudSyncPaused &&
         !autoSyncingRef.current.has(job.id) &&
         job.pages.length > 0
     );
@@ -240,6 +242,15 @@ export default function App() {
     const visited = new Set<string>();
     const queue: string[] = [rootUrl];
     visited.add(rootUrl);
+
+    // Preload sitemap URLs so one root URL can discover a wider portion of the site.
+    const sitemapLinks = await discoverSitemapLinks(rootUrl, Math.max(maxPages * 3, 100));
+    for (const link of sitemapLinks) {
+      if (visited.size >= maxPages) break;
+      if (visited.has(link)) continue;
+      visited.add(link);
+      queue.push(link);
+    }
 
     let doneCount = 0;
     let currentJob = { ...newJob };
@@ -329,6 +340,7 @@ export default function App() {
           ...currentJob,
           cloudPath: result.path,
           cloudSyncedAt: result.syncedAt ?? new Date().toISOString(),
+          cloudSyncPaused: undefined,
         };
         upsertJob(syncedJob);
         setJobs(loadJobs());
@@ -375,11 +387,19 @@ export default function App() {
 
     const latest = loadJobs();
     const updated = latest.map((job) =>
-      job.id === id ? { ...job, cloudPath: undefined, cloudSyncedAt: undefined } : job
+      job.id === id
+        ? {
+            ...job,
+            cloudPath: undefined,
+            cloudSyncedAt: undefined,
+            // Keep cloud deletion intentional: do not auto-sync this job again.
+            cloudSyncPaused: true,
+          }
+        : job
     );
     saveJobs(updated);
     setJobs(updated);
-    setCloudMessage("Bulut kopyasi silindi.");
+    setCloudMessage("Bulut kopyasi silindi. Bu arsiv otomatik buluta tekrar yuklenmeyecek.");
   };
 
   const handleView = (job: ArchiveJob) => {

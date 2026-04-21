@@ -123,6 +123,11 @@ export default function JobCard({
               <CloudCheck className="h-3.5 w-3.5 text-emerald-400" />
               Bulut yedegi var
             </>
+          ) : job.cloudSyncPaused ? (
+            <>
+              <Cloud className="h-3.5 w-3.5 text-orange-400" />
+              Bulut yedegi silindi
+            </>
           ) : (
             <>
               <Cloud className="h-3.5 w-3.5 text-zinc-500" />

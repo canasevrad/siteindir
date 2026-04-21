@@ -29,4 +29,5 @@ export interface ArchiveJob {
   errorMsg?: string;
   cloudPath?: string;
   cloudSyncedAt?: string;
+  cloudSyncPaused?: boolean;
 }

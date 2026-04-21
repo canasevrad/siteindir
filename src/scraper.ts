@@ -467,6 +467,199 @@ function extractText(html: string): string {
   return doc.body?.innerText?.trim() ?? "";
 }
 
+function normalizeAbsoluteUrl(url: string): string | null {
+  try {
+    const normalized = new URL(url);
+    if (normalized.protocol !== "http:" && normalized.protocol !== "https:") {
+      return null;
+    }
+    normalized.hash = "";
+    return normalized.toString();
+  } catch {
+    return null;
+  }
+}
+
+function parseSitemapXml(xmlText: string): string[] {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "text/xml");
+  if (doc.querySelector("parsererror")) return [];
+
+  const locNodes = Array.from(doc.querySelectorAll("urlset > url > loc"));
+  return locNodes
+    .map((node) => node.textContent?.trim() ?? "")
+    .filter(Boolean);
+}
+
+function parseSitemapIndexXml(xmlText: string): string[] {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "text/xml");
+  if (doc.querySelector("parsererror")) return [];
+
+  const locNodes = Array.from(doc.querySelectorAll("sitemapindex > sitemap > loc"));
+  return locNodes
+    .map((node) => node.textContent?.trim() ?? "")
+    .filter(Boolean);
+}
+
+function parseFeedLinks(xmlText: string): string[] {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "text/xml");
+  if (doc.querySelector("parsererror")) return [];
+
+  const itemLinks = Array.from(doc.querySelectorAll("rss > channel > item > link"))
+    .map((node) => node.textContent?.trim() ?? "")
+    .filter(Boolean);
+
+  const atomEntryLinks = Array.from(doc.querySelectorAll("feed > entry > link[href]"))
+    .map((node) => (node as Element).getAttribute("href")?.trim() ?? "")
+    .filter(Boolean);
+
+  return [...itemLinks, ...atomEntryLinks];
+}
+
+async function fetchSitemapDocument(url: string): Promise<string | null> {
+  try {
+    const text = await fetchViaProxy(url, false);
+    if (!text.trim()) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+async function collectUrlsFromFeed(
+  feedUrl: string,
+  hostName: string,
+  out: Set<string>,
+  maxUrls: number
+): Promise<void> {
+  if (out.size >= maxUrls) return;
+  const feedText = await fetchSitemapDocument(feedUrl);
+  if (!feedText) return;
+
+  for (const candidate of parseFeedLinks(feedText)) {
+    const normalized = normalizeAbsoluteUrl(candidate);
+    if (!normalized) continue;
+    if (new URL(normalized).hostname !== hostName) continue;
+    out.add(normalized);
+    if (out.size >= maxUrls) break;
+  }
+}
+
+async function discoverPlatformLinks(
+  root: URL,
+  out: Set<string>,
+  maxUrls: number
+): Promise<void> {
+  const hostName = root.hostname;
+  const rootOrigin = `${root.protocol}//${root.host}`;
+
+  if (hostName.endsWith("tumblr.com")) {
+    out.add(`${rootOrigin}/archive`);
+    await collectUrlsFromFeed(`${rootOrigin}/rss`, hostName, out, maxUrls);
+  }
+
+  if (hostName.endsWith("blogspot.com") || hostName.endsWith("blogger.com")) {
+    await collectUrlsFromFeed(
+      `${rootOrigin}/feeds/posts/default?alt=rss`,
+      hostName,
+      out,
+      maxUrls
+    );
+    await collectUrlsFromFeed(
+      `${rootOrigin}/feeds/posts/default?alt=atom`,
+      hostName,
+      out,
+      maxUrls
+    );
+  }
+}
+
+async function collectUrlsFromSitemap(
+  sitemapUrl: string,
+  hostName: string,
+  out: Set<string>,
+  remainingDepth: number,
+  maxUrls: number
+): Promise<void> {
+  if (remainingDepth < 0 || out.size >= maxUrls) return;
+
+  const xmlText = await fetchSitemapDocument(sitemapUrl);
+  if (!xmlText) return;
+
+  const nestedSitemapUrls = parseSitemapIndexXml(xmlText);
+  if (nestedSitemapUrls.length > 0) {
+    for (const nestedUrl of nestedSitemapUrls) {
+      const normalized = normalizeAbsoluteUrl(nestedUrl);
+      if (!normalized) continue;
+      await collectUrlsFromSitemap(
+        normalized,
+        hostName,
+        out,
+        remainingDepth - 1,
+        maxUrls
+      );
+      if (out.size >= maxUrls) break;
+    }
+    return;
+  }
+
+  for (const candidate of parseSitemapXml(xmlText)) {
+    const normalized = normalizeAbsoluteUrl(candidate);
+    if (!normalized) continue;
+    if (new URL(normalized).hostname !== hostName) continue;
+    out.add(normalized);
+    if (out.size >= maxUrls) break;
+  }
+}
+
+export async function discoverSitemapLinks(
+  rootUrl: string,
+  maxUrls = 200
+): Promise<string[]> {
+  let root: URL;
+  try {
+    root = new URL(rootUrl);
+  } catch {
+    return [];
+  }
+
+  const hostName = root.hostname;
+  const candidateSitemaps = new Set<string>();
+  const rootOrigin = `${root.protocol}//${root.host}`;
+
+  candidateSitemaps.add(`${rootOrigin}/sitemap.xml`);
+  candidateSitemaps.add(`${rootOrigin}/sitemap_index.xml`);
+  candidateSitemaps.add(`${rootOrigin}/wp-sitemap.xml`);
+
+  try {
+    const robotsText = await fetchViaProxy(`${rootOrigin}/robots.txt`, false);
+    const lines = robotsText.split(/\r?\n/);
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line.toLowerCase().startsWith("sitemap:")) continue;
+      const sitemapUrl = line.slice(8).trim();
+      const normalized = normalizeAbsoluteUrl(sitemapUrl);
+      if (normalized) candidateSitemaps.add(normalized);
+    }
+  } catch {
+    // Ignore robots errors and continue with default paths.
+  }
+
+  const discovered = new Set<string>();
+  for (const sitemapUrl of candidateSitemaps) {
+    await collectUrlsFromSitemap(sitemapUrl, hostName, discovered, 2, maxUrls);
+    if (discovered.size >= maxUrls) break;
+  }
+
+  if (discovered.size < maxUrls) {
+    await discoverPlatformLinks(root, discovered, maxUrls);
+  }
+
+  return Array.from(discovered);
+}
+
 export async function scrapePage(url: string): Promise<ArchivedPage> {
   const id = crypto.randomUUID();
 
