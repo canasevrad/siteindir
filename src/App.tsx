@@ -46,11 +46,41 @@ export default function App() {
   const [cloudProgress, setCloudProgress] = useState<{
     jobId: string;
     percent: number;
+    doneAssets: number;
+    totalAssets: number;
     donePages: number;
     totalPages: number;
     stage: CloudUploadProgress["stage"];
   } | null>(null);
   const autoSyncingRef = useRef(new Set<string>());
+
+  // Progress'i localStorage'dan yükle
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("webarshiv_cloud_progress");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.jobId) {
+          setCloudProgress(parsed);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Progress'i localStorage'a kaydet
+  useEffect(() => {
+    try {
+      if (cloudProgress) {
+        localStorage.setItem("webarshiv_cloud_progress", JSON.stringify(cloudProgress));
+      } else {
+        localStorage.removeItem("webarshiv_cloud_progress");
+      }
+    } catch {
+      // ignore
+    }
+  }, [cloudProgress]);
 
   useEffect(() => {
     void initJobsStore().then((initialJobs) => {
@@ -83,6 +113,8 @@ export default function App() {
       setCloudProgress({
         jobId: job.id,
         percent: 1,
+        doneAssets: 0,
+        totalAssets: 0,
         donePages: 0,
         totalPages: job.pages.length,
         stage: "preparing",
@@ -92,6 +124,8 @@ export default function App() {
         setCloudProgress({
           jobId: job.id,
           percent: progress.percent,
+          doneAssets: progress.doneAssets ?? 0,
+          totalAssets: progress.totalAssets ?? 0,
           donePages: progress.donePages,
           totalPages: progress.totalPages,
           stage: progress.stage,
@@ -243,6 +277,8 @@ export default function App() {
           setCloudProgress({
             jobId: currentJob.id,
             percent: progress.percent,
+            doneAssets: progress.doneAssets ?? 0,
+            totalAssets: progress.totalAssets ?? 0,
             donePages: progress.donePages,
             totalPages: progress.totalPages,
             stage: progress.stage,

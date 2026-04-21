@@ -21,6 +21,8 @@ const MAX_CLOUD_ASSETS_PER_PAGE = 160;
 export interface CloudUploadProgress {
   percent: number;
   stage: "preparing" | "uploading" | "done";
+  doneAssets: number;
+  totalAssets: number;
   donePages: number;
   totalPages: number;
 }
@@ -330,6 +332,8 @@ export async function uploadJobToCloud(
     onProgress?.({
       percent: 100,
       stage: "done",
+      doneAssets: 0,
+      totalAssets: 0,
       donePages: job.pages.length,
       totalPages: job.pages.length,
     });
@@ -339,8 +343,10 @@ export async function uploadJobToCloud(
   const cloudJob = deepCloneJob(job);
   const totalPages = cloudJob.pages.length;
   onProgress?.({
-    percent: totalPages > 0 ? 1 : 90,
+    percent: 1,
     stage: "preparing",
+    doneAssets: 0,
+    totalAssets: 0,
     donePages: 0,
     totalPages,
   });
@@ -354,6 +360,8 @@ export async function uploadJobToCloud(
     onProgress?.({
       percent,
       stage: "preparing",
+      doneAssets: 0,
+      totalAssets: 0,
       donePages,
       totalPages,
     });
@@ -369,6 +377,8 @@ export async function uploadJobToCloud(
   onProgress?.({
     percent: 98,
     stage: "uploading",
+    doneAssets: 0,
+    totalAssets: 0,
     donePages: totalPages,
     totalPages,
   });
@@ -384,6 +394,8 @@ export async function uploadJobToCloud(
   onProgress?.({
     percent: 100,
     stage: "done",
+    doneAssets: 0,
+    totalAssets: 0,
     donePages: totalPages,
     totalPages,
   });
