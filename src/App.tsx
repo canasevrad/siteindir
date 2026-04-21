@@ -508,8 +508,10 @@ export default function App() {
           <div className="text-right">
             {cloudProgress && (
               <p className="text-xs text-cyan-300">
-                Buluta yedekleniyor: %{cloudProgress.percent} ({cloudProgress.donePages}/
-                {cloudProgress.totalPages || 0} sayfa)
+                Buluta yedekleniyor: %{cloudProgress.percent}
+                {cloudProgress.totalAssets > 0
+                  ? ` (${cloudProgress.doneAssets}/${cloudProgress.totalAssets} dosya)`
+                  : ` (${cloudProgress.donePages}/${cloudProgress.totalPages || 0} sayfa)`}
               </p>
             )}
             {cloudMessage && <p className="text-xs text-cyan-400">{cloudMessage}</p>}
@@ -607,6 +609,12 @@ export default function App() {
                 onExport={handleExport}
                 cloudEnabled={cloudReady}
                 cloudProgressPercent={cloudProgress?.jobId === job.id ? cloudProgress.percent : undefined}
+                cloudProgressDoneAssets={
+                  cloudProgress?.jobId === job.id ? cloudProgress.doneAssets : undefined
+                }
+                cloudProgressTotalAssets={
+                  cloudProgress?.jobId === job.id ? cloudProgress.totalAssets : undefined
+                }
                 cloudProgressStage={cloudProgress?.jobId === job.id ? cloudProgress.stage : undefined}
               />
             ))}

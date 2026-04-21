@@ -143,7 +143,8 @@ async function rewriteCssWithCloudAssets(
   jobId: string,
   state: { count: number; nextId: number },
   urlCache: Map<string, { token: string; path: string }>,
-  assetMap: Record<string, string>
+  assetMap: Record<string, string>,
+  onRefProcessed?: () => void
 ): Promise<string> {
   let nextCss = cssText;
   const rawUrls = extractCssUrls(cssText);
@@ -155,6 +156,8 @@ async function rewriteCssWithCloudAssets(
     } catch {
       continue;
     }
+
+    onRefProcessed?.();
 
     if (urlCache.has(absoluteUrl)) {
       const cached = urlCache.get(absoluteUrl) as { token: string; path: string };
@@ -178,7 +181,11 @@ async function rewriteCssWithCloudAssets(
   return nextCss;
 }
 
-async function rewritePageWithCloudAssets(jobId: string, page: ArchivedPage): Promise<ArchivedPage> {
+async function rewritePageWithCloudAssets(
+  jobId: string,
+  page: ArchivedPage,
+  onAssetProgress?: () => void
+): Promise<ArchivedPage> {
   if (page.status !== "success" || !page.html) return page;
 
   const parser = new DOMParser();
@@ -198,6 +205,8 @@ async function rewritePageWithCloudAssets(jobId: string, page: ArchivedPage): Pr
     } catch {
       return rawUrl;
     }
+
+    onAssetProgress?.();
 
     if (urlCache.has(absoluteUrl)) {
       const cached = urlCache.get(absoluteUrl) as { token: string; path: string };
@@ -256,7 +265,8 @@ async function rewritePageWithCloudAssets(jobId: string, page: ArchivedPage): Pr
       jobId,
       state,
       urlCache,
-      assetMap
+      assetMap,
+      onAssetProgress
     );
   }
 
@@ -269,7 +279,8 @@ async function rewritePageWithCloudAssets(jobId: string, page: ArchivedPage): Pr
       jobId,
       state,
       urlCache,
-      assetMap
+      assetMap,
+      onAssetProgress
     );
     el.setAttribute("style", nextStyle);
   }
@@ -332,8 +343,8 @@ export async function uploadJobToCloud(
     onProgress?.({
       percent: 100,
       stage: "done",
-      doneAssets: 0,
-      totalAssets: 0,
+      doneAssets: 1,
+      totalAssets: 1,
       donePages: job.pages.length,
       totalPages: job.pages.length,
     });
@@ -342,27 +353,104 @@ export async function uploadJobToCloud(
 
   const cloudJob = deepCloneJob(job);
   const totalPages = cloudJob.pages.length;
+  
+  // Önce tüm assetleri topla ve say
+  const allAssets: Array<{ pageIdx: number; url: string; attr: string }> = [];
+  for (let pageIdx = 0; pageIdx < cloudJob.pages.length; pageIdx++) {
+    const page = cloudJob.pages[pageIdx];
+    if (page.status !== "success" || !page.html) continue;
+    
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(page.html, "text/html");
+    
+    const srcAttrs = ["src", "data-src", "data-original", "data-lazy-src", "poster"];
+    const nodes = Array.from(doc.querySelectorAll<HTMLElement>("img, source, video, audio"));
+    for (const node of nodes) {
+      for (const attr of srcAttrs) {
+        const value = node.getAttribute(attr);
+        if (value && !value.startsWith("data:") && !value.startsWith("blob:")) {
+          allAssets.push({ pageIdx, url: value, attr });
+        }
+      }
+      const srcsetAttrs = ["srcset", "data-srcset"];
+      for (const attr of srcsetAttrs) {
+        const value = node.getAttribute(attr);
+        if (value) {
+          const parts = parseSrcset(value);
+          for (const part of parts) {
+            if (!part.url.startsWith("data:") && !part.url.startsWith("blob:")) {
+              allAssets.push({ pageIdx, url: part.url, attr: "srcset" });
+            }
+          }
+        }
+      }
+    }
+    
+    // CSS url() kaynakları
+    const styleNodes = Array.from(doc.querySelectorAll("style"));
+    for (const styleNode of styleNodes) {
+      const cssText = styleNode.textContent ?? "";
+      const cssUrls = extractCssUrls(cssText);
+      for (const url of cssUrls) {
+        if (!url.startsWith("data:") && !url.startsWith("blob:")) {
+          allAssets.push({ pageIdx, url, attr: "css" });
+        }
+      }
+    }
+
+    const inlineStyled = Array.from(doc.querySelectorAll<HTMLElement>("[style*='url(']"));
+    for (const el of inlineStyled) {
+      const styleValue = el.getAttribute("style") ?? "";
+      const cssUrls = extractCssUrls(styleValue);
+      for (const url of cssUrls) {
+        if (!url.startsWith("data:") && !url.startsWith("blob:")) {
+          allAssets.push({ pageIdx, url, attr: "inline-css" });
+        }
+      }
+    }
+  }
+  
+  // Keep percentage stable and incremental by counting total discovered references.
+  // This gives smoother progress than page-weighted jumps.
+  const totalAssets = Math.max(1, Math.min(allAssets.length, MAX_CLOUD_ASSETS_PER_PAGE * totalPages));
+  
   onProgress?.({
     percent: 1,
     stage: "preparing",
     doneAssets: 0,
-    totalAssets: 0,
+    totalAssets,
     donePages: 0,
     totalPages,
   });
 
   const nextPages: ArchivedPage[] = [];
+  let processedAssetRefs = 0;
+  
   for (let index = 0; index < cloudJob.pages.length; index += 1) {
     const page = cloudJob.pages[index];
-    nextPages.push(await rewritePageWithCloudAssets(cloudJob.id, page));
-    const donePages = index + 1;
-    const percent = totalPages > 0 ? Math.min(96, Math.max(2, Math.round((donePages / totalPages) * 96))) : 96;
+    const rewrittenPage = await rewritePageWithCloudAssets(cloudJob.id, page, () => {
+      processedAssetRefs += 1;
+      const trackedDone = Math.min(processedAssetRefs, totalAssets);
+      const percent = Math.min(97, Math.max(1, Math.ceil((trackedDone / totalAssets) * 97)));
+      onProgress?.({
+        percent,
+        stage: "preparing",
+        doneAssets: trackedDone,
+        totalAssets,
+        donePages: index,
+        totalPages,
+      });
+    });
+    nextPages.push(rewrittenPage);
+
+    const trackedDone = Math.min(processedAssetRefs, totalAssets);
+    const percent = Math.min(97, Math.max(1, Math.ceil((trackedDone / totalAssets) * 97)));
     onProgress?.({
       percent,
       stage: "preparing",
-      doneAssets: 0,
-      totalAssets: 0,
-      donePages,
+      doneAssets: trackedDone,
+      totalAssets,
+      donePages: index + 1,
       totalPages,
     });
   }
@@ -377,8 +465,8 @@ export async function uploadJobToCloud(
   onProgress?.({
     percent: 98,
     stage: "uploading",
-    doneAssets: 0,
-    totalAssets: 0,
+    doneAssets: totalAssets,
+    totalAssets,
     donePages: totalPages,
     totalPages,
   });
@@ -394,8 +482,8 @@ export async function uploadJobToCloud(
   onProgress?.({
     percent: 100,
     stage: "done",
-    doneAssets: 0,
-    totalAssets: 0,
+    doneAssets: totalAssets,
+    totalAssets,
     donePages: totalPages,
     totalPages,
   });

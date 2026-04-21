@@ -19,6 +19,8 @@ interface JobCardProps {
   onExport: (job: ArchiveJob) => void;
   cloudEnabled: boolean;
   cloudProgressPercent?: number;
+  cloudProgressDoneAssets?: number;
+  cloudProgressTotalAssets?: number;
   cloudProgressStage?: "preparing" | "uploading" | "done";
 }
 
@@ -36,6 +38,8 @@ export default function JobCard({
   onExport,
   cloudEnabled,
   cloudProgressPercent,
+  cloudProgressDoneAssets,
+  cloudProgressTotalAssets,
   cloudProgressStage,
 }: JobCardProps) {
   const progress = job.totalPages > 0 ? Math.round((job.donePages / job.totalPages) * 100) : 0;
@@ -109,6 +113,9 @@ export default function JobCard({
             <>
               <LoaderCircle className="h-3.5 w-3.5 animate-spin text-cyan-400" />
               Buluta yedekleniyor %{Math.min(100, Math.max(0, Math.round(cloudProgressPercent)))}
+              {typeof cloudProgressDoneAssets === "number" && typeof cloudProgressTotalAssets === "number"
+                ? ` (${cloudProgressDoneAssets}/${cloudProgressTotalAssets} dosya)`
+                : ""}
               {cloudProgressStage === "uploading" ? " (JSON yukleniyor)" : ""}
             </>
           ) : job.cloudSyncedAt ? (
