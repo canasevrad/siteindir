@@ -6,7 +6,10 @@ interface NewArchiveModalProps {
   onStart: (url: string, maxPages: number) => void;
 }
 
-export default function NewArchiveModal({ onClose, onStart }: NewArchiveModalProps) {
+export default function NewArchiveModal({
+  onClose,
+  onStart,
+}: NewArchiveModalProps) {
   const [url, setUrl] = useState("");
   const [maxPages, setMaxPages] = useState(20);
 

@@ -24,7 +24,7 @@ import {
   type CloudUploadProgress,
   deleteJobFromCloud,
   downloadJobFromCloud,
-  getCloudConfigStatus,
+  isCloudConfigured,
   listCloudJobIds,
   uploadJobToCloud,
 } from "./cloud";
@@ -34,6 +34,8 @@ import ArchiveViewer from "./components/ArchiveViewer";
 
 const activeJobRefs = new Map<string, boolean>();
 const CLOUD_PROGRESS_KEY = "webarshiv_cloud_progress";
+
+const cloudReady = isCloudConfigured();
 
 type CloudProgressState = {
   jobId: string;
@@ -57,8 +59,6 @@ function readPersistedCloudProgress(): CloudProgressState | null {
 }
 
 export default function App() {
-  const cloudConfig = getCloudConfigStatus();
-  const cloudReady = cloudConfig.configured;
   const [jobs, setJobs] = useState<ArchiveJob[]>(() => loadJobs());
   const [showModal, setShowModal] = useState(false);
   const [viewingJob, setViewingJob] = useState<ArchiveJob | null>(null);
@@ -68,10 +68,12 @@ export default function App() {
   const [cloudProgress, setCloudProgress] = useState<CloudProgressState | null>(null);
   const autoSyncingRef = useRef(new Set<string>());
 
+  // Progress'i localStorage'dan yükle
   useEffect(() => {
     setCloudProgress(readPersistedCloudProgress());
   }, []);
 
+  // Progress'i localStorage'a kaydet
   useEffect(() => {
     try {
       if (cloudProgress) {
@@ -80,7 +82,7 @@ export default function App() {
         localStorage.removeItem(CLOUD_PROGRESS_KEY);
       }
     } catch {
-      // Ignore storage errors.
+      // ignore
     }
   }, [cloudProgress]);
 
@@ -105,6 +107,8 @@ export default function App() {
   const syncOneJobToCloud = useCallback(
     async (job: ArchiveJob): Promise<boolean> => {
       if (!cloudReady) return false;
+      
+      // Zaten bulutta varsa skip et
       if (job.cloudSyncedAt) {
         setCloudProgress(null);
         return true;
@@ -123,7 +127,7 @@ export default function App() {
               totalPages: job.pages.length,
               stage: "preparing" as const,
             };
-
+      
       setCloudProgress(initialProgress);
 
       const result = await uploadJobToCloud(job, (progress) => {
@@ -135,14 +139,16 @@ export default function App() {
             doneAssets: prevForJob
               ? Math.max(prevForJob.doneAssets, progress.doneAssets ?? 0)
               : progress.doneAssets ?? 0,
-            totalAssets: Math.max(prevForJob?.totalAssets ?? 0, progress.totalAssets ?? 0),
+            totalAssets: Math.max(
+              prevForJob?.totalAssets ?? 0,
+              progress.totalAssets ?? 0
+            ),
             donePages: prevForJob
               ? Math.max(prevForJob.donePages, progress.donePages)
               : progress.donePages,
             totalPages: Math.max(prevForJob?.totalPages ?? 0, progress.totalPages),
             stage:
-              progress.stage === "done" ||
-              (prevForJob?.stage === "uploading" && progress.stage === "preparing")
+              progress.stage === "done" || (prevForJob?.stage === "uploading" && progress.stage === "preparing")
                 ? prevForJob?.stage === "uploading" && progress.stage === "preparing"
                   ? "uploading"
                   : "done"
@@ -168,7 +174,7 @@ export default function App() {
       setCloudProgress(null);
       return true;
     },
-    []
+    [cloudReady]
   );
 
   useEffect(() => {
@@ -197,7 +203,7 @@ export default function App() {
         setCloudMessage(`${candidate.siteName} icin otomatik bulut yedegi tamamlandi.`);
       }
     })();
-  }, [jobs, cloudBusy, syncOneJobToCloud]);
+  }, [jobs, cloudBusy, cloudReady, syncOneJobToCloud]);
 
   const handleStart = async (url: string, maxPages: number) => {
     setShowModal(false);
@@ -216,6 +222,7 @@ export default function App() {
     }
 
     const jobId = crypto.randomUUID();
+
     const newJob: ArchiveJob = {
       id: jobId,
       rootUrl,
@@ -236,6 +243,7 @@ export default function App() {
     const queue: string[] = [rootUrl];
     visited.add(rootUrl);
 
+    // Preload sitemap URLs so one root URL can discover a wider portion of the site.
     const sitemapLinks = await discoverSitemapLinks(rootUrl, Math.max(maxPages * 3, 100));
     for (const link of sitemapLinks) {
       if (visited.size >= maxPages) break;
@@ -276,11 +284,13 @@ export default function App() {
         }
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((r) => setTimeout(r, 250));
     }
 
     const finalizedStatus: ArchiveJob["status"] =
-      currentJob.pages.some((p) => p.status === "success") || doneCount > 0 ? "done" : "error";
+      currentJob.pages.some((p) => p.status === "success") || doneCount > 0
+        ? "done"
+        : "error";
 
     currentJob = {
       ...currentJob,
@@ -356,7 +366,9 @@ export default function App() {
   };
 
   const handleDeleteCloudCopy = async (id: string) => {
-    const confirmed = window.confirm("Bulut kopyasini silmek istiyor musun? Bu islem geri alinamaz.");
+    const confirmed = window.confirm(
+      "Bulut kopyasini silmek istiyor musun? Bu islem geri alinamaz."
+    );
     if (!confirmed) return;
 
     if (!cloudReady) {
@@ -380,6 +392,7 @@ export default function App() {
             ...job,
             cloudPath: undefined,
             cloudSyncedAt: undefined,
+            // Keep cloud deletion intentional: do not auto-sync this job again.
             cloudSyncPaused: true,
           }
         : job
@@ -463,22 +476,35 @@ export default function App() {
   };
 
   const filteredJobs = jobs.filter(
-    (job) =>
-      job.siteName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.rootUrl.toLowerCase().includes(searchQuery.toLowerCase())
+    (j) =>
+      j.siteName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      j.rootUrl.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const totalPages = jobs.reduce((acc, job) => acc + job.pages.filter((p) => p.status === "success").length, 0);
-  const totalSize = jobs.reduce((acc, job) => acc + job.pages.reduce((pageAcc, p) => pageAcc + p.size, 0), 0);
+  const totalPages = jobs.reduce(
+    (a, j) => a + j.pages.filter((p) => p.status === "success").length,
+    0
+  );
+  const totalSize = jobs.reduce(
+    (a, j) => a + j.pages.reduce((b, p) => b + p.size, 0),
+    0
+  );
   const totalImages = jobs.reduce(
-    (acc, job) => acc + job.pages.reduce((pageAcc, p) => pageAcc + p.images.length, 0),
+    (a, j) => a + j.pages.reduce((b, p) => b + p.images.length, 0),
     0
   );
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      {showModal && <NewArchiveModal onClose={() => setShowModal(false)} onStart={handleStart} />}
-      {viewingJob && <ArchiveViewer job={viewingJob} onClose={() => setViewingJob(null)} />}
+      {showModal && (
+        <NewArchiveModal
+          onClose={() => setShowModal(false)}
+          onStart={handleStart}
+        />
+      )}
+      {viewingJob && (
+        <ArchiveViewer job={viewingJob} onClose={() => setViewingJob(null)} />
+      )}
 
       <header className="border-b border-zinc-800 bg-zinc-900/95 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
@@ -530,7 +556,7 @@ export default function App() {
             <Cloud className="h-4 w-4 text-cyan-400" />
             {cloudReady
               ? "Bulut yedek acik. Arsivler Supabase Storage uzerine senkronlanabilir."
-              : `Bulut kapali. Eksik degisken: ${cloudConfig.missing.join(", ")}. Vercel Preview icin bu degiskenleri Project Settings > Environment Variables altina ekleyip yeniden deploy et.`}
+              : "Bulut kapali. .env icine VITE_SUPABASE_URL ve VITE_SUPABASE_ANON_KEY eklemelisin."}
           </p>
           <div className="text-right">
             {cloudProgress && (
@@ -588,7 +614,9 @@ export default function App() {
               key={label}
               className={`flex items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 ${bg}`}
             >
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${bg}`}>
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${bg}`}
+              >
                 <Icon className={`h-5 w-5 ${color}`} />
               </div>
               <div>

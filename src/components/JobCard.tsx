@@ -139,35 +139,35 @@ export default function JobCard({
 
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => onView(job)}
-            className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-          >
-            <Eye className="h-4 w-4" />
-            <span className="truncate">Goruntule</span>
-          </button>
-          <button
-            onClick={() => onExport(job)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-            title="JSON disa aktar"
-          >
-            <Download className="h-4 w-4" />
-            <span className="truncate">JSON indir</span>
-          </button>
+        <button
+          onClick={() => onView(job)}
+          className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+        >
+          <Eye className="h-4 w-4" />
+          <span className="truncate">Goruntule</span>
+        </button>
+        <button
+          onClick={() => onExport(job)}
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-zinc-700 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+          title="JSON disa aktar"
+        >
+          <Download className="h-4 w-4" />
+          <span className="truncate">JSON indir</span>
+        </button>
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {cloudEnabled && (
-            <button
-              onClick={() => onDeleteCloud(job.id)}
-              disabled={!job.cloudSyncedAt}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-orange-900/70 px-3 py-2 text-sm text-orange-300 transition-colors hover:bg-orange-950/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-              title="Sadece bulut kopyasini sil"
-            >
-              <Cloud className="h-4 w-4" />
-              <span className="truncate">Buluttan sil</span>
-            </button>
-          )}
+        {cloudEnabled && (
+          <button
+            onClick={() => onDeleteCloud(job.id)}
+            disabled={!job.cloudSyncedAt}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-orange-900/70 px-3 py-2 text-sm text-orange-300 transition-colors hover:bg-orange-950/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+            title="Sadece bulut kopyasini sil"
+          >
+            <Cloud className="h-4 w-4" />
+            <span className="truncate">Buluttan sil</span>
+          </button>
+        )}
         </div>
 
         <button
