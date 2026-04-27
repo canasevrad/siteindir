@@ -22,8 +22,7 @@ export default function ArchiveViewer({ job, onClose }: ArchiveViewerProps) {
     [job.pages, query]
   );
 
-  const activePage =
-    filteredPages.find((page) => page.id === activePageId) ?? filteredPages[0] ?? null;
+  const activePage = filteredPages.find((page) => page.id === activePageId) ?? filteredPages[0] ?? null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 p-4 md:p-6">
@@ -57,7 +56,7 @@ export default function ArchiveViewer({ job, onClose }: ArchiveViewerProps) {
               <p className="mt-3 text-xs text-zinc-500">{filteredPages.length} sayfa listeleniyor</p>
             </div>
 
-            <div className="max-h-[40vh] overflow-y-auto md:max-h-none md:h-[calc(100vh-240px)]">
+            <div className="max-h-[40vh] overflow-y-auto md:h-[calc(100vh-240px)] md:max-h-none">
               {filteredPages.map((page) => (
                 <button
                   key={page.id}

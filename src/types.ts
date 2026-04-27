@@ -1,33 +1,35 @@
-export interface ArchivedPage {
+export type ArchivePageStatus = "success" | "error";
+
+export type ArchivedPage = {
   id: string;
   url: string;
   title: string;
-  description: string;
-  favicon: string;
   html: string;
   text: string;
   links: string[];
   images: string[];
-  archivedAt: string;
   size: number;
-  status: "success" | "error" | "partial";
+  status: ArchivePageStatus;
+  archivedAt: string;
+  favicon?: string;
   errorMsg?: string;
-  cloudAssetMap?: Record<string, string>;
-}
+};
 
-export interface ArchiveJob {
+export type ArchiveJobStatus = "running" | "done" | "error";
+
+export type ArchiveJob = {
   id: string;
   rootUrl: string;
   siteName: string;
-  favicon: string;
+  favicon?: string;
   totalPages: number;
   donePages: number;
-  status: "idle" | "running" | "done" | "error";
+  status: ArchiveJobStatus;
   startedAt: string;
   finishedAt?: string;
-  pages: ArchivedPage[];
   errorMsg?: string;
+  pages: ArchivedPage[];
   cloudPath?: string;
   cloudSyncedAt?: string;
   cloudSyncPaused?: boolean;
-}
+};
